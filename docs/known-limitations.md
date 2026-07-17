@@ -40,6 +40,34 @@ machine or is a deliberate, documented scope cut.
   llama.cpp itself accepts it), just visually unfamiliar in the terminal
   report.
 
+- **`-no-cnv` alone does not make llama-cli non-interactive**, and this
+  build never prints a "load time" line at all. Found and fixed during the
+  first live benchmark against a real model (Qwen2.5-0.5B-Instruct, which
+  has a chat template):
+  - `brute benchmark`'s single `llama-cli` timing run originally passed
+    `-no-cnv` to force non-interactive one-shot completion. Against a
+    model with a chat template, that flag only suppresses conversation-mode
+    *chrome* - the process still enters an interactive stdin-read loop
+    after generating, which with stdin redirected from NUL (as `brute`
+    does) reads instant EOF forever and never exits. The benchmark timed
+    out at 180s. Fixed by switching to `-st` (`--single-turn`), which
+    "will not be interactive if first turn is predefined with `--prompt`"
+    per llama-cli's own `--help` text - verified directly (1.7s wall time,
+    clean exit 0, correct generated text) before changing the code. See
+    `runtime::llama_cpp::build_cli_args`.
+  - This build (`b10064`) does not print the classic
+    `llama_perf_context_print: load time = ...` line under any flag
+    combination tried (`--perf`, `--perf -v`) - only `-v`/`--log-verbose`
+    produces per-request timing (`slot print_timing: ... prompt eval time
+    = ...` / `eval time = ...`), and even then with no load-time line.
+    `model_load_time_ms` is therefore genuinely `unavailable` when running
+    against this binary, and the parser (`parse_cli_perf`) was rewritten
+    to match on the metric phrase itself rather than a fixed line prefix,
+    so it keeps working if a different llama-cli build's log format
+    changes again. `docs/measurement-methodology.md` and the report's own
+    `source` field for that field state this plainly rather than silently
+    returning a stale/wrong number.
+
 ## Deliberate Stage 0 scope cuts
 
 - **No CUDA execution, only CUDA detection.** This environment has no CUDA
@@ -60,16 +88,10 @@ machine or is a deliberate, documented scope cut.
   than guessed.
 - **No universal "AI capability score."** Explicitly out of scope per the
   Stage 0 brief - see `report::build_recommendation`.
-- **Live end-to-end benchmark against a real model is pending.** No GGUF
-  file was available on this machine during implementation. Everything
-  through the GGUF parser, process launcher, and llama.cpp argument/output
-  handling was verified against: (a) synthetic byte-level fixtures for the
-  parser, and (b) a live run against the real, fetched llama.cpp binaries,
-  which correctly loaded, correctly rejected a synthetic non-model GGUF
-  file with a real llama.cpp error (`key not found in model:
-  llama.context_length`), and correctly propagated that failure. A real
-  model benchmark run (with real tokens/sec numbers) is the next step once
-  a `.gguf` file is provided.
+- ~~Live end-to-end benchmark against a real model is pending~~ **Done.**
+  A real model (Qwen2.5-0.5B-Instruct, Q4_K_M, 630M params) was benchmarked
+  live on this machine after the `-no-cnv`/`-st` fix above - see
+  `docs/stage-0-verification.md` for the real numbers.
 - **No workspace split.** Single binary crate; see
   `docs/architecture.md` for why and what the natural split points are.
 - **`brute` targets Windows only.** No `cfg(unix)` paths exist; several

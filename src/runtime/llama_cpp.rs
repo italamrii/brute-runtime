@@ -133,9 +133,20 @@ fn build_cli_args(config: &RuntimeConfig, model: &Path, prompt: &str) -> Vec<Str
         config.batch_size.to_string(),
         "-ngl".to_string(),
         backend_gpu_layers(config.backend, config.gpu_layers).to_string(),
-        "-no-cnv".to_string(),
+        // `-no-cnv` alone does NOT prevent an interactive stdin-read loop in
+        // this llama-cli build when the model has a chat template (it just
+        // stops printing the chat-mode chrome) - with stdin redirected from
+        // NUL that loop reads instant EOF forever and never exits. `-st`
+        // (single-turn) is what actually makes a `-p`-supplied prompt run
+        // once and exit. Discovered live during Stage 0 verification: see
+        // docs/known-limitations.md.
+        "-st".to_string(),
         "--no-display-prompt".to_string(),
         "--simple-io".to_string(),
+        // Needed for the "slot print_timing: ... prompt eval time = ..."
+        // lines this build only emits at verbose log level - see
+        // parse_cli_perf().
+        "-v".to_string(),
     ]
 }
 
@@ -305,24 +316,34 @@ pub fn run_cli_version(
 /// `llama_perf_context_print:        load time =    123.45 ms`
 /// `llama_perf_context_print: prompt eval time =    12.34 ms /    8 tokens (    1.54 ms per token,   648.30 tokens per second)`
 /// `llama_perf_context_print:        eval time =    56.78 ms /   32 runs   (    1.77 ms per token,   563.58 tokens per second)`
+/// Matches two llama-cli output formats seen across releases, both on
+/// stderr:
+///   older: `llama_perf_context_print: prompt eval time =  12.34 ms / 8 tokens (... tokens per second)`
+///   b10064 (`-v`):  `... I slot print_timing: id 0 | task 0 | prompt eval time =  12.34 ms / 8 tokens (...)`
+/// We match on the metric phrase itself (`"prompt eval time ="`, etc.)
+/// wherever it appears in a line rather than a fixed line prefix, since the
+/// prefix has changed between llama.cpp versions and is not something this
+/// project controls. `load time =` is not emitted at all by b10064 in
+/// either log mode - `load_time_ms` will correctly come back `None` (not a
+/// parse failure) when running against it; see known-limitations.md.
 fn parse_cli_perf(stderr: &str) -> CliPerfMetrics {
     let mut m = CliPerfMetrics::default();
 
     for line in stderr.lines() {
-        let line = line.trim();
-        if let Some(rest) = line.strip_prefix("llama_perf_context_print:") {
-            let rest = rest.trim();
-            if let Some(v) = rest.strip_prefix("load time =") {
-                m.load_time_ms = first_number(v);
-            } else if let Some(v) = rest.strip_prefix("prompt eval time =") {
-                m.prompt_eval_ms = first_number(v);
-                m.prompt_eval_tokens = nth_integer_before(v, "tokens");
-                m.prompt_eval_tokens_per_second = number_before(v, "tokens per second");
-            } else if let Some(v) = rest.strip_prefix("eval time =") {
-                m.eval_ms = first_number(v);
-                m.eval_tokens = nth_integer_before(v, "runs");
-                m.eval_tokens_per_second = number_before(v, "tokens per second");
-            }
+        if let Some(idx) = line.find("prompt eval time =") {
+            let rest = &line[idx + "prompt eval time =".len()..];
+            m.prompt_eval_ms = first_number(rest);
+            m.prompt_eval_tokens = nth_integer_before(rest, "tokens");
+            m.prompt_eval_tokens_per_second = number_before(rest, "tokens per second");
+        } else if let Some(idx) = line.find("eval time =") {
+            let rest = &line[idx + "eval time =".len()..];
+            m.eval_ms = first_number(rest);
+            m.eval_tokens =
+                nth_integer_before(rest, "tokens").or_else(|| nth_integer_before(rest, "runs"));
+            m.eval_tokens_per_second = number_before(rest, "tokens per second");
+        } else if let Some(idx) = line.find("load time =") {
+            let rest = &line[idx + "load time =".len()..];
+            m.load_time_ms = first_number(rest);
         }
     }
 
@@ -431,10 +452,16 @@ mod tests {
     }
 
     #[test]
-    fn build_cli_args_never_invokes_conversation_mode() {
+    fn build_cli_args_uses_single_turn_not_no_cnv() {
+        // Regression test: `-no-cnv` alone does not stop this llama-cli
+        // build from dropping into an interactive stdin-read loop after
+        // generation when the model has a chat template (observed live -
+        // see docs/known-limitations.md). `-st` is what actually makes a
+        // `-p`-supplied prompt run once and exit.
         let model = Path::new(r"C:\models\test.gguf");
         let args = build_cli_args(&test_config(Backend::Cpu), model, "hello");
-        assert!(args.iter().any(|a| a == "-no-cnv"));
+        assert!(args.iter().any(|a| a == "-st"));
+        assert!(!args.iter().any(|a| a == "-no-cnv"));
     }
 
     #[test]
@@ -476,6 +503,27 @@ llama_perf_context_print:       total time =  1056.77 ms /    40 tokens
         assert_eq!(m.eval_ms, Some(56.78));
         assert_eq!(m.eval_tokens, Some(32));
         assert_eq!(m.eval_tokens_per_second, Some(563.58));
+    }
+
+    /// Exact line format captured live from the pinned b10064 CPU binary
+    /// running `-v` against a real model (see docs/stage-0-verification.md).
+    /// This build never prints a "load time =" line - `load_time_ms` must
+    /// come back `None`, not a parse failure.
+    #[test]
+    fn parses_b10064_slot_print_timing_lines() {
+        let stderr = "\
+0.00.948.516 I slot print_timing: id  0 | task 0 | prompt eval time =      63.09 ms /    30 tokens (    2.10 ms per token,   475.47 tokens per second)
+0.00.948.517 I slot print_timing: id  0 | task 0 |        eval time =     125.24 ms /    10 tokens (   12.52 ms per token,    79.85 tokens per second)
+0.00.948.518 I slot print_timing: id  0 | task 0 |       total time =     188.33 ms /    40 tokens
+";
+        let m = parse_cli_perf(stderr);
+        assert_eq!(m.load_time_ms, None);
+        assert_eq!(m.prompt_eval_ms, Some(63.09));
+        assert_eq!(m.prompt_eval_tokens, Some(30));
+        assert_eq!(m.prompt_eval_tokens_per_second, Some(475.47));
+        assert_eq!(m.eval_ms, Some(125.24));
+        assert_eq!(m.eval_tokens, Some(10));
+        assert_eq!(m.eval_tokens_per_second, Some(79.85));
     }
 
     #[test]

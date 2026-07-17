@@ -125,19 +125,101 @@ llama_server exited with code 1
 This is the expected, correct outcome for a non-model file - it confirms
 binary verification, argument construction (including a path containing
 spaces), process launch, stderr capture, and non-zero-exit propagation
-all work end to end against the real llama.cpp binaries. **A live
-benchmark producing real tokens/sec numbers is pending a real `.gguf`
-model file**, which was not available in this environment - see the next
-section.
+all work end to end against the real llama.cpp binaries.
 
-## 9. Pending: live benchmark against a real model
+## 9. `brute model inspect` against a real model
 
-Once a real GGUF model path is available:
+The user provided a real model: Qwen2.5-0.5B-Instruct, Q4_K_M quantization,
+`C:\Models\qwen2.5-0.5b-instruct-q4_k_m.gguf` (491,400,032 bytes).
 ```
-cargo run --release -- benchmark --model <path> --llama-bin .tools\llama.cpp\b10064\cpu --backend cpu
-cargo run --release -- recommend --model <path> --llama-bin .tools\llama.cpp\b10064\cpu --backend cpu
-cargo run --release -- report --output brute-report.json --model <path> --llama-bin .tools\llama.cpp\b10064\cpu
+== Model ==
+  File size: 491400032 bytes
+  SHA-256: 74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db
+  GGUF version: 3
+  Tensor count: 291
+  KV count: 26
+  Architecture: qwen2
+  Name: qwen2.5-0.5b-instruct
+  Quantization: MOSTLY_Q4_K_M
+  Parameter count: 630167424
+  Tensor-data size consistency check: passed
 ```
-This will exercise the parts of the acceptance criteria that specifically
-require a real, loadable model: real timings, real tokens/sec, real peak
-memory.
+Parameter count (630,167,424) is computed directly from the tensor shape
+table, not read from metadata - it matches the model's known ~0.5B-class
+size once embedding/lm-head tensors are counted.
+
+## 10. `brute benchmark` against the real model - first attempt failed, real bug found and fixed
+
+The first live run against a real chat-template model
+(`--timeout-secs 180`) timed out. Direct manual reproduction outside
+`brute` confirmed `llama-cli.exe` itself hangs indefinitely with the
+original `-no-cnv` flag when stdin is redirected from NUL, because
+`-no-cnv` doesn't fully disable llama-cli's post-generation interactive
+read loop for chat-template models - it just suppresses some chat-mode
+output. Switching to `-st` (`--single-turn`, per llama-cli's own
+`--help`: *"will not be interactive if first turn is predefined with
+`--prompt`"*) was verified manually first (1.7s wall time, exit 0, correct
+generated text), then applied to `runtime::llama_cpp::build_cli_args`,
+along with adding `-v` so the (differently-formatted, prefix-less)
+`slot print_timing:` lines this build emits are captured, and rewriting
+`parse_cli_perf` to match on the metric phrase rather than a fixed line
+prefix. Full detail in `docs/known-limitations.md`. Test suite updated
+(50/50 passing) with a regression test locking in both the new flag and
+the new line-format parsing, using the exact line captured from this
+binary. `cargo fmt --check` and `cargo clippy --all-targets -- -D
+warnings` clean after the fix.
+
+## 11. `brute benchmark` against the real model - real numbers
+
+```
+cargo run --release -- benchmark --model "C:\Models\qwen2.5-0.5b-instruct-q4_k_m.gguf" --llama-bin ".tools\llama.cpp\b10064\cpu" --backend cpu --timeout-secs 180
+```
+```
+== Benchmark ==
+  Backend: cpu
+  Threads: 16
+  Context size: 2048
+  Batch size: 512
+  Repetitions: 3
+  Stability: Stable
+  CLI run: exit=Some(0) timed_out=false
+  Bench run: exit=Some(0) timed_out=false
+  Model load time (ms): (unavailable)  [llama-cli did not print a load time line]
+  Time to first token (ms, approx.): 134.11  [inferred, source: approximated as llama-cli's prompt-eval time; not an independently captured per-token timestamp]
+  Prompt processing: 425.15 tok/s (stddev 3.74, CV 0.009)
+  Generation: 44.09 tok/s (stddev 0.96, CV 0.022)
+  Peak process memory (bytes): 542609408  [measured, source: Win32 GetProcessMemoryInfo.PeakWorkingSetSize (llama-bench process)]
+  System RAM available before (bytes): 8791633920  [measured, source: Win32 GlobalMemoryStatusEx (before run)]
+  System RAM available min-during (bytes): 8237555712  [measured, source: Win32 GlobalMemoryStatusEx (polled during run)]
+  System RAM available after (bytes): 8794189824  [measured, source: Win32 GlobalMemoryStatusEx (after run)]
+```
+`model_load_time_ms` is honestly `unavailable` (not zero, not guessed) -
+see `docs/known-limitations.md` for exactly why this llama-cli build
+doesn't expose it. A second run (via `recommend`) came back with
+generation stability `Marginal` instead of `Stable` (CV 0.055 vs 0.022) -
+real run-to-run variance on this machine, not a bug; this is exactly what
+the repeated-sample stability classification is for.
+
+## 12. `brute recommend`
+
+```
+== Recommended profile (from this run only) ==
+  backend: cpu
+  thread count: 16
+  gpu layers: 0
+  context size tested: 2048
+  batch size tested: 512
+  expected prompt processing speed: 401.24-407.66 tok/s
+  expected generation speed: 42.29-47.12 tok/s
+  observed peak memory: 541876224 bytes
+  stability confidence: Marginal
+  basis: 3 repetition(s) via llama-bench on the exact model/config recorded above; not extrapolated to other models or settings
+```
+
+## 13. `brute report --output brute-report.json`
+
+Produced 1,540 lines of valid, pretty-printed JSON (validated with `serde_json::from_str` round-trip in `report::json` tests, and spot-checked with `grep` after generation: `"stability": "marginal"`, `"avg_tokens_per_second": 389.850945` / `44.282249`, `"backend": "cpu"` present and correctly nested throughout). Not committed to the repo (`brute-report.json` is gitignored, as generated output should be).
+
+All Stage 0 acceptance criteria are now satisfied against a real model on
+real hardware, with the one real bug found along the way (the `-no-cnv`
+interactive-hang) fixed, tested, and documented rather than papered over.
