@@ -1,0 +1,121 @@
+//! Crate-wide error types. Every fallible operation returns one of these -
+//! nothing is swallowed, and every variant carries enough context to explain
+//! itself to a user without re-deriving the failure from a stack trace.
+
+use std::path::PathBuf;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum BruteError {
+    #[error(transparent)]
+    Path(#[from] PathError),
+
+    #[error(transparent)]
+    Gguf(#[from] GgufError),
+
+    #[error(transparent)]
+    Process(#[from] ProcessError),
+
+    #[error(transparent)]
+    Report(#[from] ReportError),
+
+    #[error("io error at {context}: {source}")]
+    Io {
+        context: String,
+        #[source]
+        source: std::io::Error,
+    },
+}
+
+#[derive(Debug, Error)]
+pub enum PathError {
+    #[error("path does not exist: {0}")]
+    NotFound(PathBuf),
+
+    #[error("path is not a regular file: {0}")]
+    NotAFile(PathBuf),
+
+    #[error("path could not be canonicalized: {path}: {source}")]
+    CanonicalizeFailed {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("file is empty: {0}")]
+    Empty(PathBuf),
+}
+
+#[derive(Debug, Error)]
+pub enum GgufError {
+    #[error("not a GGUF file: expected magic 'GGUF', found {found:?}")]
+    BadMagic { found: [u8; 4] },
+
+    #[error("unsupported GGUF version: {0} (supported: 2, 3)")]
+    UnsupportedVersion(u32),
+
+    #[error("file is truncated: expected to read {expected} bytes for {context}, got {actual}")]
+    Truncated {
+        context: String,
+        expected: usize,
+        actual: usize,
+    },
+
+    #[error("malformed GGUF: {0}")]
+    Malformed(String),
+
+    #[error("hostile or corrupt count field for {field}: {value} exceeds sanity limit {limit}")]
+    CountOutOfRange {
+        field: String,
+        value: u64,
+        limit: u64,
+    },
+
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+}
+
+#[derive(Debug, Error)]
+pub enum ProcessError {
+    #[error("binary not found at {0}")]
+    BinaryNotFound(PathBuf),
+
+    #[error("binary failed verification: {path} - expected sha256 {expected}, got {actual}")]
+    HashMismatch {
+        path: PathBuf,
+        expected: String,
+        actual: String,
+    },
+
+    #[error("failed to spawn process {program}: {source}")]
+    SpawnFailed {
+        program: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("process timed out after {timeout_secs}s and was killed")]
+    TimedOut { timeout_secs: u64 },
+
+    #[error("process exited with non-zero status {code:?}: {stderr_tail}")]
+    NonZeroExit {
+        code: Option<i32>,
+        stderr_tail: String,
+    },
+
+    #[error("failed to kill timed-out process: {0}")]
+    KillFailed(std::io::Error),
+}
+
+#[derive(Debug, Error)]
+pub enum ReportError {
+    #[error("failed to serialize report: {0}")]
+    Serialize(#[from] serde_json::Error),
+
+    #[error("failed to write report to {path}: {source}")]
+    Write {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+}

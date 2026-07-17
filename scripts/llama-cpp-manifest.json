@@ -1,0 +1,22 @@
+{
+  "_comment": "Pinned llama.cpp release binaries. sha256_zip values were read from GitHub's own release-asset digest field (GET /repos/ggml-org/llama.cpp/releases/tags/<tag>) at the time this file was written, not computed locally - they are the independent upstream anchor of trust. scripts/fetch-llama-cpp.ps1 downloads each asset and refuses to extract it if the downloaded file's SHA-256 does not match sha256_zip.",
+  "source_repo": "https://github.com/ggml-org/llama.cpp",
+  "binaries": [
+    {
+      "tag": "b10064",
+      "backend": "cpu",
+      "asset": "llama-b10064-bin-win-cpu-x64.zip",
+      "download_url": "https://github.com/ggml-org/llama.cpp/releases/download/b10064/llama-b10064-bin-win-cpu-x64.zip",
+      "sha256_zip": "c9b770b584a007a1aeea1b729e0e4724fb79a2cb136ece46be92704aaee5099e",
+      "entry_points": ["llama-cli.exe", "llama-bench.exe"]
+    },
+    {
+      "tag": "b10064",
+      "backend": "vulkan",
+      "asset": "llama-b10064-bin-win-vulkan-x64.zip",
+      "download_url": "https://github.com/ggml-org/llama.cpp/releases/download/b10064/llama-b10064-bin-win-vulkan-x64.zip",
+      "sha256_zip": "319d4fba60188e3f3d9793ce875cf7fe2371992ca958390fc2050c63257e531a",
+      "entry_points": ["llama-cli.exe", "llama-bench.exe"]
+    }
+  ]
+}

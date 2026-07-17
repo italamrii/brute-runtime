@@ -1,0 +1,10 @@
+/target
+
+# Locally fetched, verified llama.cpp binaries - not redistributed via this repo
+.tools/
+
+# User-imported model files - never redistributed
+*.gguf
+
+# Generated reports
+/brute-report.json
