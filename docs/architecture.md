@@ -1,23 +1,31 @@
-# Architecture — Stage 0
+# Architecture — Stage 0 and Stage 1
 
-BRUTE Runtime Stage 0 is a single Rust binary crate (`brute`), not a
-workspace. The module boundaries below are the seams a future multi-crate
-split would fall along, but a workspace isn't justified yet at this scope.
+BRUTE Runtime is a single Rust binary crate (`brute`), not a workspace.
+The module boundaries below are the seams a future multi-crate split
+would fall along, but a workspace isn't justified yet at this scope.
 
 ```
 src/
   main.rs           CLI entry point, command dispatch, exit codes
   cli/mod.rs         clap argument definitions
   errors.rs           BruteError and per-domain error enums (thiserror)
+  provenance.rs        Stage 1's Provenance/Valued<T> - 5-way (adds "Catalog" to
+                       Stage 0's 4-way Confidence), kept separate to avoid
+                       destabilizing Stage 0's serialized shape
   hardware/
     mod.rs             Confidence, HardwareField<T>, HardwareReport aggregate
     cpu.rs              vendor/brand/cores (sysinfo) + ISA flags (raw-cpuid)
     memory.rs           GlobalMemoryStatusEx (Win32)
     gpu.rs              DXGI adapter enumeration + nvidia-smi + Vulkan probe
+    power.rs             GetSystemPowerStatus (Win32); Stage 1 addition
     windows.rs          OS version (registry), architecture, storage free space
   models/
     mod.rs             ModelReport aggregate, inspect_model()
-    gguf.rs             streaming GGUF header/KV/tensor-info parser
+    gguf.rs             streaming GGUF header/KV/tensor-info parser; Stage 1
+                         added architecture-hyperparameter extraction
+                         (context_length, embedding_length, block_count,
+                         attention head/kv-head counts) for the exact KV-cache
+                         formula
     validation.rs       path safety (delegates to security::paths)
   runtime/
     mod.rs             Backend enum, RuntimeConfig
@@ -31,12 +39,32 @@ src/
     scoring.rs             stability classification from sample variance
   report/
     mod.rs             CapabilityReport aggregate, recommendation derivation
-    json.rs              serde_json (de)serialization
+    json.rs              serde_json (de)serialization + Stage 1 report-path
+                         username redaction
     terminal.rs           human-readable rendering with confidence tags
   security/
     mod.rs             re-exports
-    paths.rs             canonicalize + regular-file validation
+    paths.rs             canonicalize + regular-file validation + Stage 1
+                         report-path redaction
     hashing.rs            SHA-256 (streamed) + binary pin verification
+  profile/
+    mod.rs             Stage 1: normalizes HardwareReport into the stable
+                       HardwareCapabilityProfile schema; machine_id, confidence
+                       roll-up
+  catalog/
+    mod.rs, schema.rs   Stage 1: ModelBuild schema, bounded/validated JSON
+                       loading (untrusted input)
+  estimator/
+    mod.rs, formulas.rs  Stage 1: memory/disk range estimation, documented
+                       formulas, versioned "stage1-v1"
+  fit/
+    mod.rs             Stage 1: six-state fit classifier
+  calibration/
+    mod.rs             Stage 1: real-benchmark record store, nearest-match
+                       lookup with documented confidence degradation
+  recommend/
+    mod.rs, explain.rs   Stage 1: weighted ranking engine + two-tier
+                       (simple/technical) explanation
 ```
 
 ## Data flow
@@ -88,6 +116,44 @@ stable-surface way to integrate: see
 [`scripts/fetch-llama-cpp.ps1`](../scripts/fetch-llama-cpp.ps1) for how the
 binaries are obtained.
 
+## Stage 1 data flow
+
+```
+brute profile create
+  hardware::inspect(storage_path)  ->  profile::build_profile()  ->  HardwareCapabilityProfile
+
+brute catalog list/show
+  catalog::load_catalog()  (bounded, validated, untrusted-input parsing)  ->  Catalog
+
+brute fit / recommend-model / explain-fit
+  hardware::inspect() -> profile::build_profile()
+  catalog::load_catalog()
+  calibration::CalibrationStore::load()
+  for each candidate build:
+    estimator::estimate(build, None, profile, config)   -> MemoryEstimate (range + assumptions)
+    calibration::find_nearest(...)                       -> CalibrationMatch (Exact/Close/Distant) or None
+    fit::evaluate(build, estimate, profile, has_calibration_support) -> FitResult (6-state)
+  recommend::rank()      -> weighted score x fit-state multiplier, sorted
+  recommend::recommend() -> primary + safer fallback + stronger optional
+  recommend::explain::build_explanation() -> simple + technical two-tier explanation
+```
+
+## Why Stage 1 has a separate `Provenance`/`Valued<T>` instead of widening `Confidence`
+
+Stage 0's `hardware::Confidence` is 4-way (Measured/Detected/Inferred/
+Unavailable) and its serialized shape is exercised by every existing
+Stage 0 test and consumer. Stage 1 needs a 5th category — "this is
+curated catalog metadata about the *model*, not a fact about *this
+machine*" — which doesn't fit any of the four existing meanings without
+blurring the distinction the product principle requires. Rather than add
+a variant to `Confidence` (which every existing `match` on it would need
+to handle, and which would change Stage 0's serialized enum), Stage 1
+defines its own `provenance::Provenance` + `Valued<T>`, with a `From<
+HardwareField<T>>` conversion for reuse where a Stage 0 fact flows into a
+Stage 1 structure (e.g. `profile::HardwareCapabilityProfile`). Stage 0's
+types and JSON shape are completely unchanged - verified by
+`report::json::tests::stage0_json_field_paths_remain_present_after_stage1_additions`.
+
 ## Extension points for later stages
 
 - `runtime::Backend` is an enum today; a `Backend` trait with `Cpu`/`Cuda`/
@@ -98,3 +164,10 @@ binaries are obtained.
 - `report::CapabilityReport` is the single serialization boundary; a future
   desktop UI would consume this JSON shape rather than calling internal
   modules directly.
+- `catalog::Catalog` is currently loaded from one local file; a future
+  stage could add multiple catalog sources merged together without
+  changing `ModelBuild`'s schema.
+- `calibration::CalibrationStore` is a flat JSON file today; the
+  `find_nearest` lookup is already decoupled from storage, so a future
+  stage could swap in a different store (e.g. SQLite) without touching
+  `fit`/`recommend`.

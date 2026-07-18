@@ -1,4 +1,4 @@
-# Security model — Stage 0
+# Security model — Stage 0 and Stage 1
 
 ## Threats considered
 
@@ -65,15 +65,56 @@
    background threads so a chatty process cannot deadlock us by filling an
    OS pipe buffer while we're blocked waiting for exit.
 
-## What Stage 0 explicitly does NOT do
+7. **Untrusted catalog input (Stage 1).** `catalog::load_catalog` treats
+   every catalog JSON file as untrusted: a hard 16 MiB file-size cap and
+   50,000-entry cap are enforced before/after parsing, every entry is
+   structurally validated (`filename` must be a bare name with no path
+   separators or `..`, `official_source_url` must be `http(s)://`, no
+   duplicate IDs, all counts/sizes nonzero), and no catalog string is ever
+   interpreted as a path to open, a URL to fetch, or a shell command - see
+   `docs/model-catalog-schema.md` and `src/catalog/mod.rs`'s validation
+   tests (`rejects_path_traversal_in_filename`, `rejects_non_http_source_url`,
+   `rejects_oversized_catalog_file`, `rejects_malformed_json`).
+
+8. **Privacy-sensitive fields in exported reports (Stage 1).** Every path
+   that could carry a real Windows username (a model's file path, a
+   storage path checked for free space, a llama.cpp binary directory) is
+   redacted before it leaves the process as JSON -
+   `security::redact_username_for_report` replaces
+   `C:\Users\<name>\...` with `C:\Users\<redacted>\...`, applied in
+   `report::json::to_pretty_string`/`write_to_file` (Stage 0's
+   `brute report`) and `brute profile create`'s JSON/file output. Verified
+   with both a Latin and an Arabic username
+   (`security::paths::tests::redact_username_handles_arabic_usernames_too`)
+   and end-to-end
+   (`report::json::tests::exported_report_never_contains_the_real_username_from_a_model_path`).
+   This is a display-time transform only - `brute` always operates on the
+   real, unredacted path internally.
+
+## What Stage 0/1 explicitly do NOT do
 
 - Does not execute anything from inside a GGUF file, or any file adjacent
   to it. GGUF metadata is treated as inert data (numbers and strings), and
   the tensor payload is never read at all.
-- Does not download or redistribute model files, ever.
+- Does not download or redistribute model files, ever. The Stage 1
+  catalog stores only metadata and official source URLs - `brute` never
+  opens a catalog URL automatically.
+- Does not scrape, crawl, or auto-update catalog data from the internet.
+  The catalog is a local, hand-curated, explicitly-labeled fixture file.
 - Does not run any code with elevated privileges.
 - Does not phone home, telemetry-free by construction (no HTTP client
-  linked into the `brute` binary itself).
+  linked into the `brute` binary itself - confirmed by dependency and
+  source audit, see `docs/stage-1-verification.md` §10: zero network
+  crates in `Cargo.toml`, no telemetry/analytics/country-detection code
+  anywhere in `src/`).
+- Does not collect hardware serial numbers, MAC addresses, or other
+  precise device identifiers. `profile::HardwareCapabilityProfile`'s
+  `machine_id` is a hash of already non-sensitive, coarse aggregate specs
+  (CPU brand string, core counts, RAM rounded to the nearest GiB, OS
+  build number) - stable on one machine, not traceable to a real hardware
+  identity, and two different machines with identical coarse specs could
+  in principle collide (an accepted tradeoff, documented in
+  `profile::compute_machine_id`'s doc comment).
 - Does not silently downgrade a security check into a warning. A hash
   mismatch is always fatal; an unavailable hardware measurement is always
   reported as `unavailable`, never defaulted to a plausible-looking value.

@@ -19,12 +19,18 @@ pub enum BruteError {
     #[error(transparent)]
     Report(#[from] ReportError),
 
+    #[error(transparent)]
+    Catalog(#[from] CatalogError),
+
     #[error("io error at {context}: {source}")]
     Io {
         context: String,
         #[source]
         source: std::io::Error,
     },
+
+    #[error("{0}")]
+    Usage(String),
 }
 
 #[derive(Debug, Error)]
@@ -118,4 +124,53 @@ pub enum ReportError {
         #[source]
         source: std::io::Error,
     },
+}
+
+/// Catalog files are untrusted input (curated by hand today, potentially
+/// imported from elsewhere later) - every variant here corresponds to a
+/// concrete safety/sanity check, not just "serde failed."
+#[derive(Debug, Error)]
+pub enum CatalogError {
+    #[error(
+        "catalog file {path} is {actual_bytes} bytes, exceeding the {limit_bytes}-byte safety limit"
+    )]
+    FileTooLarge {
+        path: PathBuf,
+        actual_bytes: u64,
+        limit_bytes: u64,
+    },
+
+    #[error(
+        "catalog at {path} declares {actual} entries, exceeding the {limit}-entry safety limit"
+    )]
+    TooManyEntries {
+        path: PathBuf,
+        actual: usize,
+        limit: usize,
+    },
+
+    #[error("failed to read catalog file {path}: {source}")]
+    Read {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error(
+        "catalog file {path} is not valid JSON or does not match the expected schema: {source}"
+    )]
+    Parse {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+
+    #[error("catalog entry {catalog_id:?} is invalid: {reason}")]
+    InvalidEntry { catalog_id: String, reason: String },
+
+    #[error("catalog has duplicate catalog_id {0:?}")]
+    DuplicateId(String),
+
+    #[error("no catalog entry with id {0:?}")]
+    NotFound(String),
 }

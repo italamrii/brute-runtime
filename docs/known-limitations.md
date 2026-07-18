@@ -1,8 +1,8 @@
-# Known limitations — Stage 0
+# Known limitations — Stage 0 and Stage 1
 
 These are real, observed limitations, not a hedge-everything disclaimer.
-Each one was either hit directly during Stage 0 verification on this
-machine or is a deliberate, documented scope cut.
+Each one was either hit directly during verification on this machine or
+is a deliberate, documented scope cut.
 
 ## Observed during verification on this machine
 
@@ -98,3 +98,56 @@ machine or is a deliberate, documented scope cut.
   modules (`hardware::windows`, `hardware::gpu`'s DXGI path, `security`
   binary verification against `.exe`) are Windows-specific by design per
   the Stage 0 brief.
+
+## Stage 1: found and fixed during live verification
+
+- **Fit engine originally over-penalized uncertainty** — every
+  uncalibrated catalog-only estimate jumped straight to `Experimental`
+  regardless of headroom, so even a tiny model with enormous free RAM was
+  branded "substantial uncertainty." Fixed to downgrade one tier instead
+  of jumping straight there. See `docs/model-fit-classification.md` and
+  `docs/stage-1-verification.md` §2.
+- **`recommend-model` originally presented a different-sized calibrated
+  build's real tok/s numbers as flat "expected performance"** for the
+  build actually being evaluated on a `Close` (not `Exact`) calibration
+  match - exactly the "extrapolate as if scaling were linear" the brief
+  explicitly forbids. Fixed with proximity-aware wording in
+  `recommend::explain::describe_calibration_performance`. See
+  `docs/calibration-methodology.md`.
+- **`calibration_record_count` in the hardware profile originally counted
+  every record in the store file, not just ones measured on this
+  machine** - fixed to filter by `machine_id`.
+
+## Stage 1: deliberate scope cuts
+
+- **Partial GPU offload is not modeled precisely.** The estimator treats
+  GPU offload as all-or-nothing (`EstimationConfig::full_gpu_offload`);
+  `--n-gpu-layers`-style partial splits are a documented gap, not
+  silently estimated as if precise.
+- **The catalog is a small, hand-curated development fixture** (7 entries
+  in `data/catalog/dev-catalog.json`), not a live or scraped index. Only
+  one entry's numeric fields are independently verified against a real
+  downloaded file; the rest are labeled order-of-magnitude approximations
+  per-entry in `metadata_provenance`. Stage 1 does not fetch, scrape, or
+  auto-update catalog data from any external source - by design (see
+  `docs/security-model.md`).
+- **Calibration coverage is currently one architecture (Qwen2/`qwen2`) on
+  one backend (CPU).** Every other architecture in the dev catalog
+  (Llama) has no calibration data yet, so its fit/recommendation results
+  are honestly downgraded for uncertainty rather than guessed. Growing
+  the calibration store (`--save-calibration` on `brute benchmark`) is
+  the intended way to close this gap over time - it does not happen
+  automatically.
+- **`quality_pref` and `openness_pref` reference scales are fixed
+  constants** (30B params as the "large" reference; a simple
+  gated/known-license heuristic), not learned or tuned against real user
+  feedback - see `docs/recommendation-methodology.md`.
+- **Bits-per-weight table underestimates small models by roughly a
+  quarter** (measured: ~28% for Qwen2.5-0.5B Q4_K_M) because embedding/
+  output tensors are a larger fraction of a small model's total size.
+  Real `file_size_bytes` is always preferred when available; the table is
+  only a fallback/cross-check. See `docs/model-memory-estimation.md`.
+- **Catalog/calibration performance was only measured at small scale**
+  (7 catalog entries, 1 calibration record) - see
+  `docs/stage-1-verification.md` §9. Behavior at "hundreds or thousands"
+  of entries is a linear extrapolation, not an independent measurement.

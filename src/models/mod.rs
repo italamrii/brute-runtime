@@ -3,6 +3,7 @@ pub mod validation;
 
 use crate::errors::BruteError;
 use crate::security;
+use gguf::GgufHyperparameters;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -23,6 +24,7 @@ pub struct ModelReport {
     pub alignment: u32,
     pub size_consistency_checked: bool,
     pub kv_preview: BTreeMap<String, String>,
+    pub hyperparameters: GgufHyperparameters,
 }
 
 /// Validates the path, hashes the file, and parses GGUF metadata. Every step
@@ -53,5 +55,6 @@ pub fn inspect_model(path: &Path) -> Result<ModelReport, BruteError> {
         alignment: summary.alignment,
         size_consistency_checked: summary.size_consistency_checked,
         kv_preview: summary.kv_preview,
+        hyperparameters: summary.hyperparameters,
     })
 }

@@ -4,7 +4,7 @@
 //! from a direct measurement or a tool's self-reported log.
 
 use crate::hardware::HardwareField;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ThroughputMetric {
@@ -44,7 +44,7 @@ pub struct TimingMetrics {
     pub time_to_first_token_ms: HardwareField<f64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StabilityStatus {
     Stable,

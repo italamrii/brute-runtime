@@ -51,6 +51,33 @@ const PREVIEW_KEYS: &[&str] = &[
     "tokenizer.ggml.model",
 ];
 
+/// Per-architecture hyperparameter keys we also keep, matched by suffix
+/// since every GGUF hyperparameter key is `"{architecture}.{suffix}"` and
+/// the architecture value itself may not appear before these keys in the
+/// stream. These feed the Stage 1 memory estimator's exact KV-cache
+/// formula (see `docs/model-memory-estimation.md`) when a model has
+/// actually been parsed, rather than only estimated from catalog metadata.
+const HYPERPARAMETER_KEY_SUFFIXES: &[&str] = &[
+    ".context_length",
+    ".embedding_length",
+    ".block_count",
+    ".attention.head_count",
+    ".attention.head_count_kv",
+    ".attention.key_length",
+    ".attention.value_length",
+];
+
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct GgufHyperparameters {
+    pub context_length: Option<u64>,
+    pub embedding_length: Option<u64>,
+    pub block_count: Option<u64>,
+    pub attention_head_count: Option<u64>,
+    pub attention_head_count_kv: Option<u64>,
+    pub attention_key_length: Option<u64>,
+    pub attention_value_length: Option<u64>,
+}
+
 #[derive(Debug, Clone)]
 pub struct GgufSummary {
     pub version: u32,
@@ -64,6 +91,7 @@ pub struct GgufSummary {
     pub alignment: u32,
     pub file_size: u64,
     pub kv_preview: BTreeMap<String, String>,
+    pub hyperparameters: GgufHyperparameters,
     /// Set when the tensor-data section implied by tensor offsets/sizes
     /// extends past the actual file size for the tensor types we know how
     /// to size. `None` means the check could not be performed (unknown
@@ -110,7 +138,10 @@ pub fn inspect(path: &Path) -> Result<GgufSummary, GgufError> {
         let key = read_gguf_string(&mut r, file_size, &format!("kv[{i}].key"))?;
         let value_type = read_u32(&mut r, &format!("kv[{i}].value_type"))?;
         let summary = read_value_summary(&mut r, value_type, file_size, 0)?;
-        if PREVIEW_KEYS.contains(&key.as_str()) {
+        let is_hyperparameter = HYPERPARAMETER_KEY_SUFFIXES
+            .iter()
+            .any(|suffix| key.ends_with(suffix));
+        if PREVIEW_KEYS.contains(&key.as_str()) || is_hyperparameter {
             kv_preview.insert(key, summary);
         }
     }
@@ -182,11 +213,17 @@ pub fn inspect(path: &Path) -> Result<GgufSummary, GgufError> {
         .map(file_type_name)
         .or_else(|| dominant_tensor_type.clone());
 
+    let architecture = kv_preview.get("general.architecture").cloned();
+    let hyperparameters = architecture
+        .as_deref()
+        .map(|arch| extract_hyperparameters(arch, &kv_preview))
+        .unwrap_or_default();
+
     Ok(GgufSummary {
         version,
         tensor_count,
         kv_count,
-        architecture: kv_preview.get("general.architecture").cloned(),
+        architecture,
         name: kv_preview.get("general.name").cloned(),
         quantization,
         dominant_tensor_type,
@@ -198,8 +235,33 @@ pub fn inspect(path: &Path) -> Result<GgufSummary, GgufError> {
         alignment,
         file_size,
         kv_preview,
+        hyperparameters,
         size_consistency_checked,
     })
+}
+
+/// Looks up `"{architecture}.{suffix}"` for each hyperparameter this
+/// binary cares about - the standard GGUF convention for where a model's
+/// transformer shape is recorded.
+fn extract_hyperparameters(
+    architecture: &str,
+    kv_preview: &BTreeMap<String, String>,
+) -> GgufHyperparameters {
+    let get_u64 = |suffix: &str| -> Option<u64> {
+        kv_preview
+            .get(&format!("{architecture}{suffix}"))
+            .and_then(|s| s.parse::<u64>().ok())
+    };
+
+    GgufHyperparameters {
+        context_length: get_u64(".context_length"),
+        embedding_length: get_u64(".embedding_length"),
+        block_count: get_u64(".block_count"),
+        attention_head_count: get_u64(".attention.head_count"),
+        attention_head_count_kv: get_u64(".attention.head_count_kv"),
+        attention_key_length: get_u64(".attention.key_length"),
+        attention_value_length: get_u64(".attention.value_length"),
+    }
 }
 
 fn align_up(value: u64, alignment: u64) -> u64 {
@@ -505,6 +567,60 @@ mod tests {
         assert_eq!(summary.parameter_count, Some(4));
         assert_eq!(summary.alignment, 32);
         assert!(summary.size_consistency_checked);
+
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn parses_hyperparameters_by_architecture_prefix() {
+        // Hyperparameter keys come before "general.architecture" in this
+        // fixture on purpose - extraction must not depend on key order,
+        // since GGUF does not guarantee any particular order.
+        let path = tmp_path("hyperparams.gguf");
+        let mut f = Fixture::new()
+            .u32(3) // version
+            .u64(1) // tensor_count
+            .u64(6) // kv_count
+            .kv_u32("qwen2.context_length", 32768)
+            .kv_u32("qwen2.embedding_length", 896)
+            .kv_u32("qwen2.block_count", 24)
+            .kv_u32("qwen2.attention.head_count", 14)
+            .kv_u32("qwen2.attention.head_count_kv", 2)
+            .kv_string("general.architecture", "qwen2")
+            // tensor[0]: name, n_dims=1, dims=[4], type=F32(0), offset=0
+            .string("weight")
+            .u32(1)
+            .u64(4)
+            .u32(0)
+            .u64(0);
+        let unpadded = f.buf.len() as u64;
+        let padded = align_up(unpadded, 32);
+        f = f
+            .raw(&vec![0u8; (padded - unpadded) as usize])
+            .raw(&[0u8; 16]);
+        f.write_to(&path);
+
+        let summary = inspect(&path).expect("should parse");
+        assert_eq!(summary.architecture.as_deref(), Some("qwen2"));
+        assert_eq!(summary.hyperparameters.context_length, Some(32768));
+        assert_eq!(summary.hyperparameters.embedding_length, Some(896));
+        assert_eq!(summary.hyperparameters.block_count, Some(24));
+        assert_eq!(summary.hyperparameters.attention_head_count, Some(14));
+        assert_eq!(summary.hyperparameters.attention_head_count_kv, Some(2));
+        assert_eq!(summary.hyperparameters.attention_key_length, None);
+
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn hyperparameters_default_to_none_when_architecture_unknown() {
+        let path = tmp_path("no_arch.gguf");
+        let f = Fixture::new().u32(3).u64(0).u64(0);
+        f.write_to(&path);
+
+        let summary = inspect(&path).expect("should parse");
+        assert_eq!(summary.architecture, None);
+        assert_eq!(summary.hyperparameters.context_length, None);
 
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }

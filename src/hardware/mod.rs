@@ -5,6 +5,7 @@
 pub mod cpu;
 pub mod gpu;
 pub mod memory;
+pub mod power;
 pub mod windows;
 
 use serde::Serialize;
@@ -93,6 +94,10 @@ pub struct GpuAdapter {
     pub name: String,
     pub vendor: GpuVendor,
     pub dedicated_vram_bytes: Option<u64>,
+    /// System RAM the OS may lend to this adapter (e.g. for an iGPU) - only
+    /// meaningful as a ceiling, not a guarantee of availability at any
+    /// given moment, since it's shared with everything else running.
+    pub shared_system_memory_bytes: Option<u64>,
     pub driver_version: Option<String>,
 }
 
@@ -135,6 +140,7 @@ pub struct HardwareReport {
     pub memory: MemoryReport,
     pub gpu: GpuReport,
     pub storage: Option<StorageReport>,
+    pub power: power::PowerReport,
 }
 
 /// Runs every detector and assembles the full report. `storage_path` is the
@@ -147,5 +153,6 @@ pub fn inspect(storage_path: Option<&std::path::Path>) -> HardwareReport {
         memory: memory::inspect_memory(),
         gpu: gpu::inspect_gpu(),
         storage: storage_path.map(windows::inspect_storage),
+        power: power::inspect_power(),
     }
 }

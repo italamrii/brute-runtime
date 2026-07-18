@@ -113,6 +113,9 @@ fn render_hardware(out: &mut String, report: &CapabilityReport) {
         field_line(out, "Storage free bytes", &storage.free_bytes);
         field_line(out, "Storage total bytes", &storage.total_bytes);
     }
+    field_line(out, "AC line status", &hw.power.ac_line_status);
+    field_line(out, "Battery present", &hw.power.battery_present);
+    field_line(out, "Chassis class", &hw.power.chassis_class);
     let _ = writeln!(out);
 }
 

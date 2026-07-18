@@ -41,6 +41,29 @@ pub fn validate_regular_file(path: &Path) -> Result<PathBuf, PathError> {
     Ok(canonical)
 }
 
+/// Renders a path for a *shareable* report (JSON exports, anything meant
+/// to leave this machine) with the Windows user profile directory name
+/// replaced - `C:\Users\Alice\Downloads\model.gguf` becomes
+/// `C:\Users\<redacted>\Downloads\model.gguf`. Every other path component
+/// (drive, folder structure, filename) is preserved, since those are
+/// useful for debugging and not personally identifying on their own.
+///
+/// This is a display-time transform only - never applied to paths used
+/// for actual file operations, which always use the real, unredacted path.
+pub fn redact_username_for_report(path: &Path) -> String {
+    let text = path.display().to_string();
+    let mut parts: Vec<String> = text.split('\\').map(str::to_string).collect();
+
+    for i in 0..parts.len() {
+        if parts[i].eq_ignore_ascii_case("Users") && i + 1 < parts.len() && !parts[i + 1].is_empty()
+        {
+            parts[i + 1] = "<redacted>".to_string();
+        }
+    }
+
+    parts.join("\\")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,6 +118,33 @@ mod tests {
         let result = validate_regular_file(&path);
         assert!(matches!(result, Err(PathError::Empty(_))));
         fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn redact_username_replaces_only_the_profile_directory_name() {
+        let redacted =
+            redact_username_for_report(Path::new(r"C:\Users\Alice\Downloads\model.gguf"));
+        assert_eq!(redacted, r"C:\Users\<redacted>\Downloads\model.gguf");
+    }
+
+    #[test]
+    fn redact_username_handles_arabic_usernames_too() {
+        let redacted = redact_username_for_report(Path::new(r"C:\Users\أحمد\Downloads\model.gguf"));
+        assert_eq!(redacted, r"C:\Users\<redacted>\Downloads\model.gguf");
+    }
+
+    #[test]
+    fn redact_username_leaves_non_profile_paths_unchanged() {
+        let redacted =
+            redact_username_for_report(Path::new(r"C:\Models\qwen2.5-0.5b-instruct-q4_k_m.gguf"));
+        assert_eq!(redacted, r"C:\Models\qwen2.5-0.5b-instruct-q4_k_m.gguf");
+    }
+
+    #[test]
+    fn redact_username_handles_extended_length_prefix() {
+        // std::fs::canonicalize on Windows returns \\?\C:\Users\... paths.
+        let redacted = redact_username_for_report(Path::new(r"\\?\C:\Users\Bob\model.gguf"));
+        assert_eq!(redacted, r"\\?\C:\Users\<redacted>\model.gguf");
     }
 
     fn tempfile_dir() -> PathBuf {

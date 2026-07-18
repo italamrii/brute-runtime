@@ -1,0 +1,23 @@
+{
+  "records": [
+    {
+      "recorded_at_rfc3339": "2026-07-17T23:45:24Z",
+      "machine_id": "machine-4afb786d0b05e66d",
+      "machine_profile_schema_version": "stage1-v1",
+      "catalog_id": "qwen2.5-0.5b-instruct-q4_k_m",
+      "architecture": "qwen2",
+      "quantization": "Q4_K_M",
+      "parameter_count": 630167424,
+      "backend": "cpu",
+      "threads": 16,
+      "gpu_layers": 0,
+      "context_size": 2048,
+      "batch_size": 512,
+      "prompt_processing_tokens_per_second": 425.15,
+      "generation_tokens_per_second": 44.09,
+      "peak_ram_bytes": 542609408,
+      "peak_vram_bytes": null,
+      "stability": "stable"
+    }
+  ]
+}

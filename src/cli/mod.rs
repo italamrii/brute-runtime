@@ -1,9 +1,21 @@
+use crate::catalog::TaskCategory;
+use crate::recommend::Priority;
 use crate::runtime::Backend;
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
+/// Default curated dev catalog, relative to the current working directory
+/// (this repo's root when run via `cargo run`). Override with `--catalog`
+/// when pointing at a different file.
+pub const DEFAULT_CATALOG_PATH: &str = "data/catalog/dev-catalog.json";
+
+/// Default calibration store - the seeded real-benchmark data shipped in
+/// this repo. Override with `--calibration` to point at a store you've
+/// added your own recorded runs to.
+pub const DEFAULT_CALIBRATION_PATH: &str = "data/calibration/seed-calibration.json";
+
 #[derive(Debug, Parser)]
-#[command(name = "brute", version, about = "BRUTE Runtime - Stage 0 local-AI capability inspector", long_about = None)]
+#[command(name = "brute", version, about = "BRUTE Runtime - local-AI hardware intelligence and model fit engine", long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -79,6 +91,124 @@ pub enum Commands {
         #[command(flatten)]
         args: BenchmarkArgs,
     },
+
+    /// Hardware Capability Profile - a normalized, UI-stable snapshot of
+    /// this machine (see docs/stage-1-hardware-intelligence.md).
+    Profile {
+        #[command(subcommand)]
+        action: ProfileCommands,
+    },
+    /// Local curated Model Build Catalog (see docs/model-catalog-schema.md).
+    Catalog {
+        #[command(subcommand)]
+        action: CatalogCommands,
+    },
+    /// Classify how well catalog build(s) fit this machine.
+    Fit {
+        #[command(flatten)]
+        catalog: CatalogArgs,
+        /// Classify a single catalog entry by its catalog_id.
+        #[arg(long)]
+        model: Option<String>,
+        /// Classify every entry in the catalog.
+        #[arg(long)]
+        all: bool,
+        #[arg(long)]
+        context: Option<u32>,
+        #[arg(long, value_enum)]
+        backend: Option<Backend>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Rank catalog builds for a task/priority and produce a recommendation.
+    RecommendModel {
+        #[command(flatten)]
+        catalog: CatalogArgs,
+        #[arg(long, value_enum)]
+        task: Option<TaskCategory>,
+        #[arg(long, value_enum, default_value = "balanced")]
+        priority: Priority,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Explain, in both plain language and technical detail, why a
+    /// specific catalog build was (or wasn't) recommended.
+    ExplainFit {
+        #[command(flatten)]
+        catalog: CatalogArgs,
+        #[arg(long)]
+        model: String,
+        #[arg(long, value_enum)]
+        task: Option<TaskCategory>,
+        #[arg(long, value_enum, default_value = "balanced")]
+        priority: Priority,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Inspect stored real-benchmark calibration records.
+    Calibrations {
+        #[command(subcommand)]
+        action: CalibrationsCommands,
+    },
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct CatalogArgs {
+    #[arg(long, default_value = DEFAULT_CATALOG_PATH)]
+    pub catalog: PathBuf,
+    #[arg(long, default_value = DEFAULT_CALIBRATION_PATH)]
+    pub calibration: PathBuf,
+    /// Directory to check free disk space against (e.g. where you intend
+    /// to store downloaded models). Without this, disk-space fit checks
+    /// are skipped and assumed sufficient - always reported honestly as
+    /// such, never silently treated as "checked."
+    #[arg(long)]
+    pub storage_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ProfileCommands {
+    /// Build and print/save the normalized hardware capability profile.
+    Create {
+        #[arg(long)]
+        output: Option<PathBuf>,
+        #[arg(long, default_value = DEFAULT_CALIBRATION_PATH)]
+        calibration: PathBuf,
+        #[arg(long)]
+        storage_path: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CatalogCommands {
+    /// List every build in the catalog.
+    List {
+        #[arg(long, default_value = DEFAULT_CATALOG_PATH)]
+        catalog: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show full details for one catalog entry.
+    Show {
+        #[arg(long, default_value = DEFAULT_CATALOG_PATH)]
+        catalog: PathBuf,
+        catalog_id: String,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CalibrationsCommands {
+    /// List every stored calibration record.
+    List {
+        #[arg(long, default_value = DEFAULT_CALIBRATION_PATH)]
+        calibration: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -130,4 +260,10 @@ pub struct BenchmarkArgs {
     /// pin is always rejected regardless of this flag.
     #[arg(long)]
     pub allow_unverified_binary: bool,
+
+    /// After a successful benchmark, append a real calibration record to
+    /// this JSON file (created if absent) - see `brute calibrations list`
+    /// and docs/calibration-methodology.md. Off by default.
+    #[arg(long)]
+    pub save_calibration: Option<PathBuf>,
 }

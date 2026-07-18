@@ -91,6 +91,7 @@ fn enumerate_dxgi_adapters() -> Option<Vec<GpuAdapter>> {
             name,
             vendor,
             dedicated_vram_bytes: Some(desc.DedicatedVideoMemory as u64),
+            shared_system_memory_bytes: Some(desc.SharedSystemMemory as u64),
             driver_version: None,
         });
     }
