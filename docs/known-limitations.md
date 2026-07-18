@@ -1,4 +1,4 @@
-# Known limitations — Stage 0 and Stage 1
+# Known limitations — Stage 0, Stage 1, and Stage 2
 
 These are real, observed limitations, not a hedge-everything disclaimer.
 Each one was either hit directly during verification on this machine or
@@ -151,3 +151,65 @@ is a deliberate, documented scope cut.
   (7 catalog entries, 1 calibration record) - see
   `docs/stage-1-verification.md` §9. Behavior at "hundreds or thousands"
   of entries is a linear extrapolation, not an independent measurement.
+
+## Stage 2: found and fixed during live verification
+
+- **A real silent-fallback false positive.** `check_no_silent_fallback`
+  originally accepted `n_gpu_layers > 0` (from llama-bench's own JSON
+  output) as evidence a GPU was used, alongside a non-empty `gpu_info`.
+  Live testing against this repo's pinned **CPU-only** b10064 binary
+  showed the binary echoes the requested `-ngl` flag straight back into
+  `n_gpu_layers` regardless of whether it has any GPU support compiled
+  in - `brute backends verify --backend cuda` against that binary
+  falsely reported `status: "verified"`. Fixed to trust only `gpu_info`
+  non-empty. See `docs/backend-verification.md` for the full before/
+  after transcript and the regression test.
+- **`brute tune status` originally conflated repetitions with
+  candidates**, counting `run_repetition` closure calls (3 per
+  candidate) rather than distinct candidates, misreporting "42/14
+  candidates" on a real run. Fixed to derive progress from the
+  candidate's position in the plan.
+
+## Stage 2: deliberate scope cuts
+
+- **CUDA/Vulkan execution not exercised live.** Same as Stage 0: no
+  GPU-enabled llama.cpp binary was fetched in this environment.
+  Detection and the refuse-to-fabricate-GPU-success behavior *were*
+  verified live and thoroughly (see the false-positive bug above and
+  `docs/stage-2-verification.md`) - only genuine end-to-end GPU
+  *execution* (a real offloaded benchmark completing) was not.
+- **Mid-process cancellation is not wired into individual tuning
+  benchmark launches.** `brute tune cancel` is checked between
+  repetitions/candidates (`tuning::runner::execute_plan`'s
+  `is_cancelled` closure), not via `TickAction::Cancel` inside a single
+  running `llama-bench` process, even though the underlying primitive
+  supports it (see `docs/cancellation-and-process-safety.md`). Given the
+  small fixed prompt/generation token counts tuning uses, the practical
+  gap between "cancel requested" and "next checkpoint" is normally a few
+  seconds on CPU.
+- **The context×batch candidate group's "batch exceeds context" pruning
+  branch is not exercised by the current fixed option sets** (context
+  starts at 1024; batch tops out at 512, so batch can never exceed
+  context with today's constants). The check remains as a defensive
+  guard against a future change to those option lists, not dead code
+  removed for lack of current coverage.
+- **Backend driver-version changes are not separately tracked** for
+  runtime-profile invalidation (spec section 9's "when detectable"
+  qualifier). A driver change that actually matters changes what `brute
+  backends verify` reports on the next `brute tune run`/`profiles
+  verify`, which always re-verifies rather than trusting a cached flag -
+  see `docs/runtime-profile-schema.md`.
+- **The three tuning dimensions (threads, GPU offload, context×batch)
+  are searched independently, not jointly.** "Is 12 threads still the
+  best choice once GPU offload is on?" is not directly tested - each
+  group is anchored on fixed defaults for the other dimensions, a
+  deliberate tradeoff for deterministic, displayable dry-run planning.
+  See `docs/tuning-search-space.md`.
+- **"CUDA binary launches but model load fails" has no dedicated
+  automated test** - it requires a real GPU-enabled binary to exercise
+  honestly. Left as a live-validation scenario.
+- **Backend verification and tuning benchmarks use small, fixed
+  prompt/generation token counts** (16/8 for backend verification,
+  64/32 for tuning), not the model's full practical context - by
+  design, to keep a 32-candidate plan benchmarkable in bounded time; see
+  `docs/tuning-search-space.md` and `docs/cancellation-and-process-safety.md`.

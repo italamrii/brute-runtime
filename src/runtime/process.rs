@@ -14,12 +14,28 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+/// Returned from `on_tick` each poll iteration: `Continue` to keep
+/// waiting, `Cancel` to kill the child immediately (same cleanup path as
+/// a timeout, but recorded distinctly - see `ProcessRun::cancelled`).
+/// Stage 2's tuner uses this for cooperative cancellation
+/// (`brute tune cancel` / Ctrl+C); Stage 0/1 callers always return
+/// `Continue`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TickAction {
+    Continue,
+    Cancel,
+}
+
 #[derive(Debug, Clone)]
 pub struct ProcessRun {
     pub stdout: String,
     pub stderr: String,
     pub exit_code: Option<i32>,
     pub timed_out: bool,
+    /// `true` when `on_tick` returned `TickAction::Cancel` - distinct from
+    /// `timed_out` so callers/reports never misreport a deliberate user
+    /// cancellation as a performance timeout.
+    pub cancelled: bool,
     pub wall_time: Duration,
     /// Peak working set of the child process, read via a direct Win32 API
     /// call (`GetProcessMemoryInfo`) at the moment it exits/is killed -
@@ -29,21 +45,22 @@ pub struct ProcessRun {
 
 impl ProcessRun {
     pub fn succeeded(&self) -> bool {
-        !self.timed_out && self.exit_code == Some(0)
+        !self.timed_out && !self.cancelled && self.exit_code == Some(0)
     }
 }
 
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Spawns `binary` with `args`, waits up to `timeout`, and kills it on
-/// expiry. `on_tick` is invoked on every poll iteration (roughly every
-/// `POLL_INTERVAL`) so a caller can sample metrics like system RAM while
-/// the process is running.
+/// expiry or cancellation. `on_tick` is invoked on every poll iteration
+/// (roughly every `POLL_INTERVAL`) so a caller can sample metrics like
+/// system RAM while the process is running, and can request early
+/// termination by returning `TickAction::Cancel`.
 pub fn run(
     binary: &Path,
     args: &[String],
     timeout: Duration,
-    mut on_tick: impl FnMut(&Child),
+    mut on_tick: impl FnMut(&Child) -> TickAction,
 ) -> Result<ProcessRun, ProcessError> {
     if !binary.is_file() {
         return Err(ProcessError::BinaryNotFound(binary.to_path_buf()));
@@ -67,6 +84,7 @@ pub fn run(
 
     let start = Instant::now();
     let mut timed_out = false;
+    let mut cancelled = false;
 
     let exit_status = loop {
         match child.try_wait() {
@@ -78,7 +96,12 @@ pub fn run(
                     let _ = child.wait();
                     break None;
                 }
-                on_tick(&child);
+                if on_tick(&child) == TickAction::Cancel {
+                    cancelled = true;
+                    child.kill().map_err(ProcessError::KillFailed)?;
+                    let _ = child.wait();
+                    break None;
+                }
                 thread::sleep(POLL_INTERVAL);
             }
             Err(source) => {
@@ -101,6 +124,7 @@ pub fn run(
         stderr: String::from_utf8_lossy(&stderr_bytes).into_owned(),
         exit_code: exit_status.and_then(|s| s.code()),
         timed_out,
+        cancelled,
         wall_time,
         peak_working_set_bytes,
     })
@@ -142,7 +166,7 @@ mod tests {
             &cmd_exe(),
             &["/C".to_string(), "echo hello-from-brute".to_string()],
             Duration::from_secs(10),
-            |_| {},
+            |_| TickAction::Continue,
         )
         .expect("cmd.exe should run");
 
@@ -157,7 +181,7 @@ mod tests {
             &cmd_exe(),
             &["/C".to_string(), "exit 7".to_string()],
             Duration::from_secs(10),
-            |_| {},
+            |_| TickAction::Continue,
         )
         .expect("cmd.exe should run");
 
@@ -172,11 +196,27 @@ mod tests {
             &cmd_exe(),
             &["/C".to_string(), "ping -n 30 127.0.0.1 >NUL".to_string()],
             Duration::from_millis(500),
-            |_| {},
+            |_| TickAction::Continue,
         )
         .expect("cmd.exe should run");
 
         assert!(result.timed_out);
+        assert!(result.wall_time < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn cancel_action_kills_the_process_and_marks_cancelled_not_timed_out() {
+        let result = run(
+            &cmd_exe(),
+            &["/C".to_string(), "ping -n 30 127.0.0.1 >NUL".to_string()],
+            Duration::from_secs(30),
+            |_| TickAction::Cancel,
+        )
+        .expect("cmd.exe should run");
+
+        assert!(result.cancelled);
+        assert!(!result.timed_out);
+        assert!(!result.succeeded());
         assert!(result.wall_time < Duration::from_secs(5));
     }
 
@@ -186,7 +226,7 @@ mod tests {
             Path::new(r"C:\nonexistent\brute-test-binary.exe"),
             &[],
             Duration::from_secs(1),
-            |_| {},
+            |_| TickAction::Continue,
         );
         assert!(matches!(result, Err(ProcessError::BinaryNotFound(_))));
     }
@@ -205,6 +245,7 @@ mod tests {
             Duration::from_secs(5),
             move |_| {
                 ticks_clone.fetch_add(1, Ordering::SeqCst);
+                TickAction::Continue
             },
         );
 

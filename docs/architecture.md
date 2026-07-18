@@ -1,4 +1,4 @@
-# Architecture — Stage 0 and Stage 1
+# Architecture — Stage 0, Stage 1, and Stage 2
 
 BRUTE Runtime is a single Rust binary crate (`brute`), not a workspace.
 The module boundaries below are the seams a future multi-crate split
@@ -65,6 +65,22 @@ src/
   recommend/
     mod.rs, explain.rs   Stage 1: weighted ranking engine + two-tier
                        (simple/technical) explanation
+  identity.rs          Stage 2: random, resettable, non-fingerprinting
+                       local instance ID (BCryptGenRandom) - separate from
+                       Stage 1's coarse hardware-derived machine_id
+  backends/
+    mod.rs             Stage 2: BackendStatus/BackendVerification - proves
+                       a backend actually launches/loads/benchmarks, never
+                       trusts detection alone; the anti-silent-fallback check
+  tuning/
+    mod.rs             Stage 2: TUNING_FORMULA_VERSION
+    candidates.rs        bounded/deterministic candidate generation + pruning
+    runner.rs             safety-guarded execution: timeouts, retries, RAM/
+                         disk checks, cooldowns, cooperative cancellation
+    stability.rs           5-state cross-repetition stability classifier
+    ranking.rs              lexicographic-tier configuration ranking
+    runtime_profile.rs      saved local profile schema, invalidation, sanity
+    apply.rs                apply-and-verify workflow for a saved profile
 ```
 
 ## Data flow
@@ -138,6 +154,58 @@ brute fit / recommend-model / explain-fit
   recommend::explain::build_explanation() -> simple + technical two-tier explanation
 ```
 
+## Stage 2 data flow
+
+```
+brute backends verify
+  hardware::inspect() -> profile::build_profile()
+  backends::verify_backend()  (per backend)  -> BackendVerification
+
+brute tune run
+  models::inspect_model()
+  hardware::inspect() -> profile::build_profile()
+  determine_verified_gpu_backend()   (backends::verify_backend, opportunistic)
+  tuning::candidates::generate_plan()   -> TuningPlan (bounded, deterministic)
+  [--dry-run stops here]
+  tuning::runner::execute_plan()
+    per candidate, per repetition: RAM/disk check -> runtime::llama_cpp::run_bench()
+    -> tuning::stability::classify()          -> TuningRunSummary
+  tuning::ranking::rank()             -> winner / runner-up / safer fallback
+  [--save-profile] tuning::runtime_profile::build_profile() -> saved locally
+
+brute profiles verify <id>
+  tuning::runtime_profile::load_profile_from()
+  tuning::runtime_profile::sanity_check()        (impossible-values gate)
+  tuning::runtime_profile::check_still_valid()   (environment-compatibility gate)
+  tuning::apply::apply_and_verify()              -> real short verification run
+```
+
+## Why Stage 2 has its own `BackendStatus` instead of reusing `Confidence`/`Provenance`
+
+Stage 0's `Confidence` (Measured/Detected/Inferred/Unavailable) and
+Stage 1's `Provenance` (adds Catalog) both describe *how sure we are
+about a fact*. Stage 2's `BackendStatus` describes something
+categorically different: *how far a verification pipeline got* (detected
+→ binary present → launches → model loads → benchmark completes →
+confirmed-not-a-fallback). Collapsing it into `Confidence` would force
+`LaunchFailed`/`ModelLoadFailed`/`BenchmarkFailed` - genuinely distinct
+failure points a user needs to distinguish to fix the right thing - into
+one `Unavailable`. `backends::BackendVerification` mirrors the exact
+8-field structured shape specified for Stage 2, independent of both
+existing vocabularies. See `docs/backend-verification.md`.
+
+## Why Stage 2 candidate generation is three independent groups, not staged/adaptive refinement
+
+A greedy search that refines around the best-measured-so-far result
+needs measurements that don't exist yet at plan-generation time -
+incompatible with `--dry-run` showing the full plan before anything
+runs. `tuning::candidates::generate_plan` instead produces three
+independent candidate groups (threads, GPU layers, context×batch), each
+anchored on the same fixed defaults for the other dimensions. This keeps
+the whole plan pure, deterministic, and computable in one pass, at the
+documented cost of not exploring cross-dimension interactions. See
+`docs/tuning-search-space.md`.
+
 ## Why Stage 1 has a separate `Provenance`/`Valued<T>` instead of widening `Confidence`
 
 Stage 0's `hardware::Confidence` is 4-way (Measured/Detected/Inferred/
@@ -171,3 +239,12 @@ types and JSON shape are completely unchanged - verified by
   `find_nearest` lookup is already decoupled from storage, so a future
   stage could swap in a different store (e.g. SQLite) without touching
   `fit`/`recommend`.
+- `tuning::runtime_profile` is a flat per-file JSON store today (mirrors
+  `calibration::CalibrationStore`'s tradeoffs); a future desktop UI could
+  read `%LOCALAPPDATA%\BruteRuntime\profiles\` directly via the same
+  `RuntimeProfile` JSON shape rather than a new IPC surface.
+- `tuning::runner::execute_plan`'s `is_cancelled`/RAM/disk closures are
+  already decoupled from any concrete I/O - a future stage adding a
+  proper cross-process progress channel (rather than the current
+  best-effort `tune-status.json` file) would only need to change the
+  CLI-layer closures in `main.rs`, not the runner itself.

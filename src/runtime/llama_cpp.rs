@@ -174,7 +174,7 @@ pub fn run_bench(
     model: &Path,
     config: &RuntimeConfig,
     allow_unverified: bool,
-    on_tick: impl FnMut(&std::process::Child),
+    on_tick: impl FnMut(&std::process::Child) -> super::process::TickAction,
 ) -> Result<(Vec<BenchRow>, super::process::ProcessRun), ProcessError> {
     let bin = llama_bench_path(binary_dir);
     verify_llama_binary(&bin, allow_unverified)?;
@@ -264,7 +264,7 @@ pub fn run_cli_once(
     config: &RuntimeConfig,
     prompt: &str,
     allow_unverified: bool,
-    on_tick: impl FnMut(&std::process::Child),
+    on_tick: impl FnMut(&std::process::Child) -> super::process::TickAction,
 ) -> Result<(CliPerfMetrics, super::process::ProcessRun), ProcessError> {
     let bin = llama_cli_path(binary_dir);
     verify_llama_binary(&bin, allow_unverified)?;
@@ -308,7 +308,7 @@ pub fn run_cli_version(
         &bin,
         &["--version".to_string()],
         Duration::from_secs(60),
-        |_| {},
+        |_| super::process::TickAction::Continue,
     )
 }
 

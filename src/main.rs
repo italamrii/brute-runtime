@@ -1,3 +1,4 @@
+mod backends;
 mod benchmark;
 mod calibration;
 mod catalog;
@@ -6,6 +7,7 @@ mod errors;
 mod estimator;
 mod fit;
 mod hardware;
+mod identity;
 mod models;
 mod profile;
 mod provenance;
@@ -15,21 +17,23 @@ mod runtime;
 mod security;
 #[cfg(test)]
 mod stage1_fixtures_test;
+mod tuning;
 
 use benchmark::BenchmarkReport;
 use catalog::TaskCategory;
 use chrono::Utc;
 use clap::Parser;
 use cli::{
-    BenchmarkArgs, CalibrationsCommands, CatalogArgs, CatalogCommands, Cli, Commands,
-    ModelCommands, ProfileCommands,
+    BackendsCommands, BenchmarkArgs, CalibrationsCommands, CatalogArgs, CatalogCommands, Cli,
+    Commands, ModelCommands, ProfileCommands, ProfilesCommands, TuneCommands,
 };
 use errors::BruteError;
 use recommend::Priority;
 use report::CapabilityReport;
 use runtime::{Backend, RuntimeConfig};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::Duration;
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -110,6 +114,87 @@ fn main() -> ExitCode {
         Commands::Calibrations {
             action: CalibrationsCommands::List { calibration, json },
         } => cmd_calibrations_list(&calibration, json),
+        Commands::Privacy {
+            action: cli::PrivacyCommands::ShowId,
+        } => cmd_privacy_show_id(),
+        Commands::Privacy {
+            action: cli::PrivacyCommands::ResetId,
+        } => cmd_privacy_reset_id(),
+        Commands::Backends {
+            action:
+                BackendsCommands::Verify {
+                    model,
+                    llama_bin,
+                    backend,
+                    allow_unverified_binary,
+                    timeout_secs,
+                    json,
+                },
+        } => cmd_backends_verify(
+            &model,
+            &llama_bin,
+            backend,
+            allow_unverified_binary,
+            timeout_secs,
+            json,
+        ),
+        Commands::Tune {
+            action:
+                TuneCommands::Run {
+                    model,
+                    llama_bin,
+                    priority,
+                    backend,
+                    max_duration_secs,
+                    dry_run,
+                    allow_unverified_binary,
+                    save_profile,
+                    json,
+                },
+        } => cmd_tune_run(
+            &model,
+            &llama_bin,
+            priority,
+            backend,
+            max_duration_secs,
+            dry_run,
+            allow_unverified_binary,
+            save_profile,
+            json,
+        ),
+        Commands::Tune {
+            action: TuneCommands::Status { json },
+        } => cmd_tune_status(json),
+        Commands::Tune {
+            action: TuneCommands::Cancel,
+        } => cmd_tune_cancel(),
+        Commands::Profiles {
+            action: ProfilesCommands::List { json },
+        } => cmd_profiles_list(json),
+        Commands::Profiles {
+            action: ProfilesCommands::Show { profile_id, json },
+        } => cmd_profiles_show(&profile_id, json),
+        Commands::Profiles {
+            action:
+                ProfilesCommands::Verify {
+                    profile_id,
+                    model,
+                    llama_bin,
+                    allow_unverified_binary,
+                    timeout_secs,
+                    json,
+                },
+        } => cmd_profiles_verify(
+            &profile_id,
+            &model,
+            &llama_bin,
+            allow_unverified_binary,
+            timeout_secs,
+            json,
+        ),
+        Commands::Profiles {
+            action: ProfilesCommands::Export { profile_id, output },
+        } => cmd_profiles_export(&profile_id, &output),
     };
 
     match result {
@@ -381,6 +466,18 @@ fn build_profile_for_cli(
     })
 }
 
+/// Shareable shape for `brute profile create`'s JSON/file output:
+/// `local_instance_id` (random, resettable, safe to export) sits alongside
+/// the profile fields, and `machine_id` inside the flattened profile is
+/// always the redacted placeholder - never the real coarse hardware hash.
+/// See `docs/privacy-model.md`.
+#[derive(serde::Serialize)]
+struct ShareableProfile {
+    local_instance_id: String,
+    #[serde(flatten)]
+    profile: profile::HardwareCapabilityProfile,
+}
+
 fn cmd_profile_create(
     output: Option<&Path>,
     calibration: &Path,
@@ -392,7 +489,20 @@ fn cmd_profile_create(
         storage.path_queried =
             security::redact_username_for_report(Path::new(&storage.path_queried));
     }
-    let text = to_json(&profile)?;
+
+    let local_instance_id = identity::load_or_create_local_instance_id(
+        &identity::default_instance_id_path(),
+    )
+    .map_err(|source| BruteError::Io {
+        context: "reading/creating local instance id".to_string(),
+        source,
+    })?;
+
+    let shareable = ShareableProfile {
+        local_instance_id: local_instance_id.clone(),
+        profile: profile::redact_machine_id_for_export(&profile),
+    };
+    let text = to_json(&shareable)?;
 
     if let Some(out) = output {
         std::fs::write(out, &text).map_err(|source| BruteError::Io {
@@ -403,7 +513,11 @@ fn cmd_profile_create(
     } else if json {
         println!("{text}");
     } else {
-        println!("Machine ID: {}", profile.machine_id);
+        println!("Local instance ID (safe to share): {local_instance_id}");
+        println!(
+            "Machine ID (coarse, local-eyes-only, omitted from exports): {}",
+            profile.machine_id
+        );
         println!("Schema version: {}", profile.schema_version);
         println!("Captured: {}", profile.captured_at_rfc3339);
         println!(
@@ -745,5 +859,724 @@ fn cmd_calibrations_list(calibration_path: &Path, json: bool) -> Result<(), Brut
             );
         }
     }
+    Ok(())
+}
+
+fn cmd_privacy_show_id() -> Result<(), BruteError> {
+    let id = identity::load_or_create_local_instance_id(&identity::default_instance_id_path())
+        .map_err(|source| BruteError::Io {
+            context: "reading/creating local instance id".to_string(),
+            source,
+        })?;
+    println!("{id}");
+    println!("This ID is random, local-only, and safe to include in shared reports.");
+    println!("It does not identify your hardware and carries no meaning across machines.");
+    println!("Run `brute privacy reset-id` to generate a new, unrelated one at any time.");
+    Ok(())
+}
+
+fn cmd_privacy_reset_id() -> Result<(), BruteError> {
+    let path = identity::default_instance_id_path();
+    identity::reset_local_instance_id(&path).map_err(|source| BruteError::Io {
+        context: format!("resetting local instance id at {}", path.display()),
+        source,
+    })?;
+    let new_id =
+        identity::load_or_create_local_instance_id(&path).map_err(|source| BruteError::Io {
+            context: "creating new local instance id".to_string(),
+            source,
+        })?;
+    println!("Local instance ID reset. New ID: {new_id}");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------
+// Stage 2: backend verification, runtime auto-tuning, local profiles.
+// ---------------------------------------------------------------------
+
+fn binary_hash(path: &Path, allow_unverified_binary: bool) -> Option<String> {
+    runtime::llama_cpp::verify_llama_binary(path, allow_unverified_binary)
+        .ok()
+        .map(|c| c.sha256)
+}
+
+fn cmd_backends_verify(
+    model: &Path,
+    llama_bin: &Path,
+    backend: Option<Backend>,
+    allow_unverified_binary: bool,
+    timeout_secs: u64,
+    json: bool,
+) -> Result<(), BruteError> {
+    let profile = profile::build_profile(&hardware::inspect(model.parent()), now_rfc3339(), 0);
+    let to_check = backend
+        .map(|b| vec![b])
+        .unwrap_or_else(|| vec![Backend::Cpu, Backend::Cuda, Backend::Vulkan]);
+    let timeout = Duration::from_secs(timeout_secs);
+
+    let results: Vec<backends::BackendVerification> = to_check
+        .into_iter()
+        .map(|b| {
+            backends::verify_backend(
+                b,
+                Some(llama_bin),
+                model,
+                &profile,
+                allow_unverified_binary,
+                timeout,
+            )
+        })
+        .collect();
+
+    if json {
+        println!("{}", to_json(&results)?);
+    } else {
+        for r in &results {
+            println!("{:?}: {}", r.backend, r.status.as_str());
+            if let Some(reason) = &r.failure_reason {
+                println!("  reason: {reason}");
+            }
+            if let Some(tps) = r.verification_tokens_per_second {
+                println!("  verification generation throughput: {tps:.2} tok/s");
+            }
+            if let Some(gpu_info) = &r.reported_gpu_info {
+                println!("  reported gpu_info: {gpu_info:?}");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Decides which single GPU backend (if any) tuning is allowed to
+/// generate GPU-offload candidates for - `None` unless a real
+/// end-to-end verification (not mere driver detection) passed. When the
+/// user pins `--backend cpu`, no GPU backend is even attempted; when they
+/// pin a specific GPU backend, only that one is checked; otherwise both
+/// CUDA and Vulkan are opportunistically verified and the first verified
+/// one wins.
+fn determine_verified_gpu_backend(
+    model: &Path,
+    llama_bin: &Path,
+    profile: &profile::HardwareCapabilityProfile,
+    requested_backend: Option<Backend>,
+    allow_unverified_binary: bool,
+    timeout: Duration,
+) -> (Option<Backend>, Vec<backends::BackendVerification>) {
+    let to_check: Vec<Backend> = match requested_backend {
+        Some(Backend::Cpu) => vec![],
+        Some(b) => vec![b],
+        None => vec![Backend::Cuda, Backend::Vulkan],
+    };
+
+    let mut verifications = Vec::new();
+    let mut verified_gpu = None;
+    for b in to_check {
+        let v = backends::verify_backend(
+            b,
+            Some(llama_bin),
+            model,
+            profile,
+            allow_unverified_binary,
+            timeout,
+        );
+        if v.status == backends::BackendStatus::Verified && verified_gpu.is_none() {
+            verified_gpu = Some(b);
+        }
+        verifications.push(v);
+    }
+    (verified_gpu, verifications)
+}
+
+const TUNE_PROMPT_TOKENS: u32 = 64;
+const TUNE_GEN_TOKENS: u32 = 32;
+const TUNE_PER_RUN_TIMEOUT_SECS: u64 = 60;
+const TUNE_BACKEND_VERIFY_TIMEOUT_SECS: u64 = 60;
+
+fn run_one_tuning_repetition(
+    llama_bin: &Path,
+    model_path: &Path,
+    candidate: &tuning::candidates::Candidate,
+    allow_unverified_binary: bool,
+) -> tuning::runner::RepetitionSample {
+    let config = RuntimeConfig {
+        backend: candidate.backend,
+        binary_dir: llama_bin.to_path_buf(),
+        threads: candidate.threads,
+        gpu_layers: candidate.gpu_layers,
+        context_size: candidate.context_size,
+        batch_size: candidate.batch_size,
+        prompt_tokens: TUNE_PROMPT_TOKENS,
+        gen_tokens: TUNE_GEN_TOKENS,
+        repetitions: 1,
+        timeout_secs: TUNE_PER_RUN_TIMEOUT_SECS,
+    };
+
+    match runtime::llama_cpp::run_bench(
+        llama_bin,
+        model_path,
+        &config,
+        allow_unverified_binary,
+        |_| runtime::process::TickAction::Continue,
+    ) {
+        Ok((rows, run)) => tuning::runner::RepetitionSample {
+            succeeded: run.succeeded(),
+            timed_out: run.timed_out,
+            cancelled: run.cancelled,
+            crashed: !run.succeeded() && !run.timed_out && !run.cancelled,
+            generation_tokens_per_second: rows.iter().find(|r| r.test == "tg").map(|r| r.avg_ts),
+            prompt_tokens_per_second: rows.iter().find(|r| r.test == "pp").map(|r| r.avg_ts),
+        },
+        Err(errors::ProcessError::TimedOut { .. }) => tuning::runner::RepetitionSample {
+            succeeded: false,
+            timed_out: true,
+            cancelled: false,
+            crashed: false,
+            generation_tokens_per_second: None,
+            prompt_tokens_per_second: None,
+        },
+        Err(_) => tuning::runner::RepetitionSample {
+            succeeded: false,
+            timed_out: false,
+            cancelled: false,
+            crashed: true,
+            generation_tokens_per_second: None,
+            prompt_tokens_per_second: None,
+        },
+    }
+}
+
+/// Cross-process progress reporting for `brute tune status` - a
+/// best-effort convenience, not a safety mechanism. Writing it is never
+/// allowed to fail the actual tuning run (see `write_tune_status`).
+#[derive(serde::Serialize, serde::Deserialize)]
+struct TuneStatus {
+    pid: u32,
+    started_at: String,
+    model_sha256: String,
+    total_candidates: usize,
+    completed_candidates: usize,
+    current_candidate_id: Option<String>,
+    finished: bool,
+    cancelled: bool,
+    finished_at: Option<String>,
+}
+
+fn tune_status_path() -> PathBuf {
+    identity::default_local_state_dir().join("tune-status.json")
+}
+
+fn tune_cancel_flag_path() -> PathBuf {
+    identity::default_local_state_dir().join("tune-cancel-flag")
+}
+
+fn write_tune_status(status: &TuneStatus) {
+    let path = tune_status_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(json) = serde_json::to_string_pretty(status) {
+        let _ = std::fs::write(path, json);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cmd_tune_run(
+    model: &Path,
+    llama_bin: &Path,
+    priority: tuning::ranking::RankingPriority,
+    backend: Option<Backend>,
+    max_duration_secs: Option<u64>,
+    dry_run: bool,
+    allow_unverified_binary: bool,
+    save_profile: bool,
+    json: bool,
+) -> Result<(), BruteError> {
+    let model_report = models::inspect_model(model)?;
+    let machine_profile =
+        profile::build_profile(&hardware::inspect(model.parent()), now_rfc3339(), 0);
+
+    let (verified_gpu_backend, backend_verifications) = determine_verified_gpu_backend(
+        model,
+        llama_bin,
+        &machine_profile,
+        backend,
+        allow_unverified_binary,
+        Duration::from_secs(TUNE_BACKEND_VERIFY_TIMEOUT_SECS),
+    );
+
+    let plan =
+        tuning::candidates::generate_plan(&model_report, &machine_profile, verified_gpu_backend);
+
+    if dry_run {
+        return print_tune_plan(&plan, &backend_verifications, json);
+    }
+
+    let _ = std::fs::remove_file(tune_cancel_flag_path());
+
+    let runner_config = tuning::runner::RunnerConfig {
+        total_timeout: max_duration_secs
+            .map(Duration::from_secs)
+            .unwrap_or(tuning::runner::DEFAULT_TOTAL_TIMEOUT),
+        ..tuning::runner::RunnerConfig::default()
+    };
+
+    let started_at = now_rfc3339();
+    let total = plan.candidates.len();
+    write_tune_status(&TuneStatus {
+        pid: std::process::id(),
+        started_at: started_at.clone(),
+        model_sha256: model_report.sha256.clone(),
+        total_candidates: total,
+        completed_candidates: 0,
+        current_candidate_id: None,
+        finished: false,
+        cancelled: false,
+        finished_at: None,
+    });
+
+    let cancel_flag = tune_cancel_flag_path();
+    let model_path = model_report.path.clone();
+
+    let summary = tuning::runner::execute_plan(
+        &plan,
+        &runner_config,
+        || hardware::memory::sample_bytes().map(|(_, avail)| avail),
+        || {
+            hardware::windows::inspect_storage(&model_path)
+                .free_bytes
+                .value
+        },
+        || cancel_flag.is_file(),
+        |candidate| {
+            // `run_repetition` is called once per repetition attempt (up
+            // to `repetitions_per_candidate` times per candidate), not
+            // once per candidate - deriving progress from the
+            // candidate's position in the plan (rather than counting
+            // calls) is what keeps `completed_candidates` an honest
+            // count of *candidates*, not repetition attempts.
+            let candidate_index = plan
+                .candidates
+                .iter()
+                .position(|c| c.id == candidate.id)
+                .unwrap_or(0);
+            write_tune_status(&TuneStatus {
+                pid: std::process::id(),
+                started_at: started_at.clone(),
+                model_sha256: model_report.sha256.clone(),
+                total_candidates: total,
+                completed_candidates: candidate_index,
+                current_candidate_id: Some(candidate.id.clone()),
+                finished: false,
+                cancelled: false,
+                finished_at: None,
+            });
+            run_one_tuning_repetition(llama_bin, &model_path, candidate, allow_unverified_binary)
+        },
+    );
+
+    write_tune_status(&TuneStatus {
+        pid: std::process::id(),
+        started_at,
+        model_sha256: model_report.sha256.clone(),
+        total_candidates: total,
+        completed_candidates: total,
+        current_candidate_id: None,
+        finished: true,
+        cancelled: summary.cancelled,
+        finished_at: Some(now_rfc3339()),
+    });
+
+    let ranking_result = tuning::ranking::rank(&plan, &summary, priority);
+
+    if save_profile {
+        maybe_save_runtime_profile(
+            &plan,
+            &summary,
+            &ranking_result,
+            &machine_profile,
+            &model_report,
+            llama_bin,
+            allow_unverified_binary,
+        )?;
+    }
+
+    print_tune_result(&backend_verifications, &summary, &ranking_result, json)
+}
+
+fn print_tune_plan(
+    plan: &tuning::candidates::TuningPlan,
+    verifications: &[backends::BackendVerification],
+    json: bool,
+) -> Result<(), BruteError> {
+    if json {
+        #[derive(serde::Serialize)]
+        struct Output<'a> {
+            plan: &'a tuning::candidates::TuningPlan,
+            backend_verifications: &'a [backends::BackendVerification],
+        }
+        println!(
+            "{}",
+            to_json(&Output {
+                plan,
+                backend_verifications: verifications
+            })?
+        );
+    } else {
+        println!("Dry run - no benchmarks will be launched.");
+        println!("Formula version: {}", plan.formula_version);
+        println!(
+            "Defaults: threads={} gpu_layers={} context={} batch={}",
+            plan.defaults.threads,
+            plan.defaults.gpu_layers,
+            plan.defaults.context_size,
+            plan.defaults.batch_size
+        );
+        println!("\n{} candidate(s):", plan.candidates.len());
+        for c in &plan.candidates {
+            println!(
+                "  {:<20} backend={:?} threads={} gpu_layers={} context={} batch={}",
+                c.id, c.backend, c.threads, c.gpu_layers, c.context_size, c.batch_size
+            );
+        }
+        if !plan.pruned.is_empty() {
+            println!("\n{} candidate(s) pruned:", plan.pruned.len());
+            for p in &plan.pruned {
+                println!("  {:<20} {}", p.id, p.reason);
+            }
+        }
+        if plan.truncated {
+            println!(
+                "\nWarning: candidate list was truncated to the {} safety maximum.",
+                tuning::candidates::MAX_CANDIDATES
+            );
+        }
+    }
+    Ok(())
+}
+
+fn print_tune_result(
+    verifications: &[backends::BackendVerification],
+    summary: &tuning::runner::TuningRunSummary,
+    ranking: &tuning::ranking::RankingResult,
+    json: bool,
+) -> Result<(), BruteError> {
+    if json {
+        #[derive(serde::Serialize)]
+        struct Output<'a> {
+            backend_verifications: &'a [backends::BackendVerification],
+            cancelled: bool,
+            wall_time_secs: f64,
+            candidate_results: &'a [tuning::runner::CandidateResult],
+            ranking: &'a tuning::ranking::RankingResult,
+        }
+        println!(
+            "{}",
+            to_json(&Output {
+                backend_verifications: verifications,
+                cancelled: summary.cancelled,
+                wall_time_secs: summary.wall_time.as_secs_f64(),
+                candidate_results: &summary.candidate_results,
+                ranking,
+            })?
+        );
+    } else {
+        println!(
+            "Tuning complete in {:.1}s ({} candidate(s) benchmarked).",
+            summary.wall_time.as_secs_f64(),
+            summary.candidate_results.len()
+        );
+        if summary.cancelled {
+            println!("Run was cancelled before completion.");
+        }
+        match &ranking.winner {
+            Some(w) => {
+                println!(
+                    "\nWinner: {} ({:?} confidence)",
+                    w.candidate_id, ranking.confidence
+                );
+                println!(
+                    "  backend={:?} threads={} gpu_layers={} context={} batch={}",
+                    w.measurements.backend,
+                    w.measurements.threads,
+                    w.measurements.gpu_layers,
+                    w.measurements.context_size,
+                    w.measurements.batch_size
+                );
+                println!(
+                    "  stability={:?} generation={:?} tok/s prompt={:?} tok/s",
+                    w.measurements.stability,
+                    w.measurements.mean_generation_tokens_per_second,
+                    w.measurements.mean_prompt_tokens_per_second
+                );
+            }
+            None => println!("\nNo candidate completed successfully."),
+        }
+        if let Some(r) = &ranking.runner_up {
+            println!("Runner-up: {}", r.candidate_id);
+        }
+        if let Some(f) = &ranking.safer_fallback
+            && ranking
+                .winner
+                .as_ref()
+                .is_none_or(|w| w.candidate_id != f.candidate_id)
+        {
+            println!("Safer fallback (differs from winner): {}", f.candidate_id);
+        }
+        for rejected in &ranking.rejected_faster_candidates {
+            println!(
+                "Rejected faster candidate {}: {}",
+                rejected.candidate_id, rejected.reason
+            );
+        }
+        for u in &ranking.unknown_values {
+            println!("Unknown: {u}");
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn maybe_save_runtime_profile(
+    plan: &tuning::candidates::TuningPlan,
+    summary: &tuning::runner::TuningRunSummary,
+    ranking: &tuning::ranking::RankingResult,
+    machine_profile: &profile::HardwareCapabilityProfile,
+    model_report: &models::ModelReport,
+    llama_bin: &Path,
+    allow_unverified_binary: bool,
+) -> Result<(), BruteError> {
+    let Some(winner) = &ranking.winner else {
+        println!("No candidate completed successfully - no profile saved.");
+        return Ok(());
+    };
+    let Some(stability) = summary
+        .candidate_results
+        .iter()
+        .find(|r| r.candidate_id == winner.candidate_id)
+        .map(|r| &r.stability)
+    else {
+        return Ok(());
+    };
+
+    let profile_id = tuning::runtime_profile::generate_profile_id();
+    let runtime_profile = tuning::runtime_profile::build_profile(
+        tuning::runtime_profile::ProfileInputs {
+            plan,
+            winner,
+            stability,
+            confidence: ranking.confidence,
+            machine_profile,
+            model: model_report,
+            llama_cli_sha256: binary_hash(
+                &runtime::llama_cpp::llama_cli_path(llama_bin),
+                allow_unverified_binary,
+            ),
+            llama_bench_sha256: binary_hash(
+                &runtime::llama_cpp::llama_bench_path(llama_bin),
+                allow_unverified_binary,
+            ),
+            tuning_date: now_rfc3339(),
+        },
+        profile_id.clone(),
+    );
+
+    let dir = tuning::runtime_profile::default_profiles_dir();
+    tuning::runtime_profile::save_profile_to(&dir, &runtime_profile).map_err(|source| {
+        BruteError::Io {
+            context: format!("saving runtime profile to {}", dir.display()),
+            source,
+        }
+    })?;
+    println!("Runtime profile saved: {profile_id}");
+    Ok(())
+}
+
+fn cmd_tune_status(json: bool) -> Result<(), BruteError> {
+    let path = tune_status_path();
+    if !path.is_file() {
+        if json {
+            println!(
+                "{}",
+                to_json(&serde_json::json!({"status": "no_tune_has_run"}))?
+            );
+        } else {
+            println!("No tuning run has been started yet (or its status file was cleared).");
+        }
+        return Ok(());
+    }
+
+    let contents = std::fs::read_to_string(&path).map_err(|source| BruteError::Io {
+        context: format!("reading {}", path.display()),
+        source,
+    })?;
+
+    if json {
+        println!("{contents}");
+    } else {
+        let status: TuneStatus = serde_json::from_str(&contents)
+            .map_err(errors::ReportError::Serialize)
+            .map_err(BruteError::from)?;
+        println!("Model sha256: {}", status.model_sha256);
+        println!("Started: {}", status.started_at);
+        println!(
+            "Progress: {}/{} candidates",
+            status.completed_candidates, status.total_candidates
+        );
+        if let Some(id) = &status.current_candidate_id {
+            println!("Current candidate: {id}");
+        }
+        println!("Finished: {}", status.finished);
+        println!("Cancelled: {}", status.cancelled);
+        if let Some(at) = &status.finished_at {
+            println!("Finished at: {at}");
+        }
+    }
+    Ok(())
+}
+
+fn cmd_tune_cancel() -> Result<(), BruteError> {
+    let path = tune_cancel_flag_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|source| BruteError::Io {
+            context: format!("creating {}", parent.display()),
+            source,
+        })?;
+    }
+    std::fs::write(&path, b"cancel").map_err(|source| BruteError::Io {
+        context: format!("writing cancel flag to {}", path.display()),
+        source,
+    })?;
+    println!(
+        "Cancellation requested. A running `brute tune run` will stop at its next safe \
+         checkpoint (between repetitions/candidates), never mid-process."
+    );
+    Ok(())
+}
+
+fn cmd_profiles_list(json: bool) -> Result<(), BruteError> {
+    let dir = tuning::runtime_profile::default_profiles_dir();
+    let ids =
+        tuning::runtime_profile::list_profile_ids_in(&dir).map_err(|source| BruteError::Io {
+            context: format!("listing profiles in {}", dir.display()),
+            source,
+        })?;
+
+    if json {
+        println!("{}", to_json(&ids)?);
+    } else if ids.is_empty() {
+        println!("No saved runtime profiles.");
+    } else {
+        println!("{} saved profile(s):", ids.len());
+        for id in &ids {
+            println!("  {id}");
+        }
+    }
+    Ok(())
+}
+
+fn load_profile_or_error(
+    profile_id: &str,
+) -> Result<tuning::runtime_profile::RuntimeProfile, BruteError> {
+    let dir = tuning::runtime_profile::default_profiles_dir();
+    tuning::runtime_profile::load_profile_from(&dir, profile_id).map_err(|source| BruteError::Io {
+        context: format!("loading profile {profile_id} from {}", dir.display()),
+        source,
+    })
+}
+
+fn cmd_profiles_show(profile_id: &str, json: bool) -> Result<(), BruteError> {
+    let profile = load_profile_or_error(profile_id)?;
+    if json {
+        println!("{}", to_json(&profile)?);
+    } else {
+        println!("Profile: {}", profile.profile_id);
+        println!("  Tuned: {}", profile.tuning_date);
+        println!("  Model sha256: {}", profile.model_sha256);
+        println!(
+            "  Backend: {:?}  Threads: {}  GPU layers: {}",
+            profile.backend, profile.threads, profile.gpu_layers
+        );
+        println!(
+            "  Context: {}  Batch: {}",
+            profile.context_size, profile.batch_size
+        );
+        println!(
+            "  Generation: {:?} tok/s  Prompt: {:?} tok/s",
+            profile.mean_generation_tokens_per_second, profile.mean_prompt_tokens_per_second
+        );
+        println!(
+            "  Stability: {:?}  Confidence: {:?}",
+            profile.stability, profile.confidence
+        );
+    }
+    Ok(())
+}
+
+fn cmd_profiles_verify(
+    profile_id: &str,
+    model: &Path,
+    llama_bin: &Path,
+    allow_unverified_binary: bool,
+    timeout_secs: u64,
+    json: bool,
+) -> Result<(), BruteError> {
+    let profile = load_profile_or_error(profile_id)?;
+    let model_report = models::inspect_model(model)?;
+    let machine_profile =
+        profile::build_profile(&hardware::inspect(model.parent()), now_rfc3339(), 0);
+
+    let cli_hash = binary_hash(
+        &runtime::llama_cpp::llama_cli_path(llama_bin),
+        allow_unverified_binary,
+    );
+    let bench_hash = binary_hash(
+        &runtime::llama_cpp::llama_bench_path(llama_bin),
+        allow_unverified_binary,
+    );
+
+    let result = tuning::apply::apply_and_verify(tuning::apply::ApplyRequest {
+        profile: &profile,
+        binary_dir: llama_bin,
+        model: &model_report,
+        machine_profile: &machine_profile,
+        llama_cli_sha256: cli_hash.as_deref(),
+        llama_bench_sha256: bench_hash.as_deref(),
+        allow_unverified_binary,
+        timeout: Duration::from_secs(timeout_secs),
+    });
+
+    if json {
+        println!("{}", to_json(&result)?);
+    } else {
+        println!("Status: {:?}", result.status);
+        println!("Rollback recommended: {}", result.rollback_recommended);
+        println!("{}", result.detail);
+        for issue in &result.compatibility_issues {
+            println!("  - {issue}");
+        }
+    }
+
+    if result.status == tuning::apply::ApplyStatus::Verified {
+        Ok(())
+    } else {
+        Err(BruteError::Usage(format!(
+            "profile verification did not succeed: {}",
+            result.detail
+        )))
+    }
+}
+
+fn cmd_profiles_export(profile_id: &str, output: &Path) -> Result<(), BruteError> {
+    let profile = load_profile_or_error(profile_id)?;
+    let sanitized = tuning::runtime_profile::sanitize_for_export(&profile);
+    let text = to_json(&sanitized)?;
+    std::fs::write(output, &text).map_err(|source| BruteError::Io {
+        context: format!("writing exported profile to {}", output.display()),
+        source,
+    })?;
+    println!(
+        "Profile exported to {} (machine ID redacted).",
+        output.display()
+    );
     Ok(())
 }

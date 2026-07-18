@@ -1,6 +1,7 @@
 use crate::catalog::TaskCategory;
 use crate::recommend::Priority;
 use crate::runtime::Backend;
+use crate::tuning::ranking::RankingPriority;
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -150,6 +151,141 @@ pub enum Commands {
         #[command(subcommand)]
         action: CalibrationsCommands,
     },
+    /// Manage the random, local-only, resettable instance identifier used
+    /// in shareable exports in place of the coarse hardware-derived
+    /// machine ID. See docs/privacy-model.md.
+    Privacy {
+        #[command(subcommand)]
+        action: PrivacyCommands,
+    },
+    /// Backend capability verification (Stage 2) - proves CPU/CUDA/Vulkan
+    /// actually work end to end, never just that a driver was detected.
+    Backends {
+        #[command(subcommand)]
+        action: BackendsCommands,
+    },
+    /// Runtime auto-tuning (Stage 2): safely benchmark bounded candidate
+    /// configurations and rank the results.
+    Tune {
+        #[command(subcommand)]
+        action: TuneCommands,
+    },
+    /// Saved local runtime profiles (Stage 2) - never uploaded anywhere.
+    Profiles {
+        #[command(subcommand)]
+        action: ProfilesCommands,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum BackendsCommands {
+    /// Verify a backend (or all of CPU/CUDA/Vulkan) actually launches,
+    /// loads the model, and completes a tiny benchmark - never reports
+    /// success from driver detection alone.
+    Verify {
+        #[arg(long)]
+        model: PathBuf,
+        #[arg(long)]
+        llama_bin: PathBuf,
+        /// Verify only this backend. Default: verify CPU plus whatever
+        /// GPU backends were detected.
+        #[arg(long, value_enum)]
+        backend: Option<Backend>,
+        #[arg(long)]
+        allow_unverified_binary: bool,
+        #[arg(long, default_value_t = 60)]
+        timeout_secs: u64,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TuneCommands {
+    /// Generate the bounded candidate search space and, unless
+    /// `--dry-run` is given, safely benchmark and rank it.
+    Run {
+        #[arg(long)]
+        model: PathBuf,
+        #[arg(long)]
+        llama_bin: PathBuf,
+        #[arg(long, value_enum, default_value = "balanced")]
+        priority: RankingPriority,
+        /// Restrict tuning to one backend. A GPU backend is only used for
+        /// GPU-offload candidates once it passes `brute backends verify`
+        /// internally - never assumed from detection alone. Default:
+        /// auto-detect and verify CUDA/Vulkan opportunistically.
+        #[arg(long, value_enum)]
+        backend: Option<Backend>,
+        /// Total tuning time budget, in seconds. Default: 30 minutes.
+        #[arg(long)]
+        max_duration_secs: Option<u64>,
+        /// Show the planned, pruned candidates without launching any
+        /// benchmarks.
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        allow_unverified_binary: bool,
+        /// Save the winning configuration as a local runtime profile.
+        #[arg(long)]
+        save_profile: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show the status of the most recent (or currently running) tuning run.
+    Status {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Request cancellation of a currently running `brute tune run`. Takes
+    /// effect at its next safe checkpoint (between repetitions/candidates),
+    /// never mid-process.
+    Cancel,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ProfilesCommands {
+    /// List saved local runtime profile IDs.
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show a saved profile's full details.
+    Show {
+        profile_id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Validate a saved profile against the current model/machine/binaries
+    /// and launch a short run confirming it actually applies.
+    Verify {
+        profile_id: String,
+        #[arg(long)]
+        model: PathBuf,
+        #[arg(long)]
+        llama_bin: PathBuf,
+        #[arg(long)]
+        allow_unverified_binary: bool,
+        #[arg(long, default_value_t = 60)]
+        timeout_secs: u64,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Export a saved profile to a file with the machine ID redacted.
+    Export {
+        profile_id: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum PrivacyCommands {
+    /// Print the current local instance ID (creating one if none exists).
+    ShowId,
+    /// Delete the local instance ID so a brand new, unrelated one is
+    /// generated next time it's needed.
+    ResetId,
 }
 
 #[derive(Debug, Clone, Args)]

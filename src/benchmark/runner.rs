@@ -37,6 +37,7 @@ pub fn run(
                     available_bytes: avail,
                 });
             }
+            crate::runtime::process::TickAction::Continue
         },
     )?;
 
@@ -49,6 +50,7 @@ pub fn run(
                     available_bytes: avail,
                 });
             }
+            crate::runtime::process::TickAction::Continue
         })?;
 
     let after = hw_memory::sample_bytes();

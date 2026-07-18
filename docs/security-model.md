@@ -1,4 +1,4 @@
-# Security model — Stage 0 and Stage 1
+# Security model — Stage 0, Stage 1, and Stage 2
 
 ## Threats considered
 
@@ -91,8 +91,45 @@
    This is a display-time transform only - `brute` always operates on the
    real, unredacted path internally.
 
-## What Stage 0/1 explicitly do NOT do
+9. **Never claiming a GPU backend works from detection alone (Stage 2).**
+   `backends::verify_backend` requires a real process launch, a real
+   model load, and llama-bench's own `gpu_info` field non-empty before
+   ever reporting `Verified` - never Stage 1's driver-detection signal
+   alone. This caught a real false positive live: see
+   `docs/backend-verification.md` and `docs/known-limitations.md`.
+   `tuning::candidates::generate_plan` only generates GPU-offload
+   candidates for a backend that passed this pipeline.
 
+10. **A saved runtime profile can be a hand-edited or corrupted file on
+    disk (Stage 2).** `tuning::runtime_profile::sanity_check` rejects
+    internally impossible values (zero/implausible thread counts, batch
+    exceeding context, a CPU backend paired with nonzero GPU layers, a
+    malformed model hash) before `tuning::apply::apply_and_verify` ever
+    launches a process against it - checked before, and independently
+    of, environment-compatibility checks (`check_still_valid`). See
+    `docs/runtime-profile-schema.md`.
+
+11. **Cooperative cancellation never leaves an orphaned process (Stage
+    2).** `runtime::process::run`'s `TickAction::Cancel` path kills and
+    reaps the child exactly like a timeout does, recorded as a distinct
+    `cancelled` flag rather than misreported as `timed_out`. Every layer
+    above it (llama.cpp wrappers, the benchmark runner, the tuner)
+    threads the same guarantee through - there is no code path that
+    spawns a `llama-cli`/`llama-bench` process without eventually
+    waiting on it. See `docs/cancellation-and-process-safety.md`.
+
+## What Stage 0/1/2 explicitly do NOT do
+
+- Does not modify BIOS, drivers, power limits, voltage, clocks, fan
+  curves, registry performance settings, or Windows security settings
+  (Stage 2). Tuning only ever changes runtime parameters passed to
+  llama.cpp (threads, GPU layers, context, batch) - see
+  `docs/cancellation-and-process-safety.md`.
+- Does not persist any Stage 2 state (saved profiles, tune status)
+  anywhere but `%LOCALAPPDATA%\BruteRuntime\`, never uploaded or synced
+  anywhere - see `docs/privacy-model.md`, which is Stage 2's dedicated
+  privacy document (the mandatory no-telemetry/no-analytics/no-cloud-
+  database list lives there in full).
 - Does not execute anything from inside a GGUF file, or any file adjacent
   to it. GGUF metadata is treated as inert data (numbers and strings), and
   the tensor payload is never read at all.

@@ -101,6 +101,27 @@ pub fn build_profile(
     }
 }
 
+/// Placeholder written in place of `machine_id` in any shareable export
+/// (JSON/file output, never the local terminal display). `machine_id` is
+/// coarse and collision-prone by design (see `compute_machine_id`), but
+/// it's still fully deterministic from hardware, so Stage 2's privacy
+/// review requires it never leave the machine as-is. Use
+/// `identity::load_or_create_local_instance_id` for a value that *is*
+/// safe to export - random, resettable, and carrying no hardware meaning.
+pub const REDACTED_MACHINE_ID_PLACEHOLDER: &str = "omitted-from-export";
+
+/// Returns a copy of `profile` with `machine_id` replaced by
+/// [`REDACTED_MACHINE_ID_PLACEHOLDER`] - for building shareable (JSON/
+/// file) output. Never used for the local terminal display, where the
+/// real coarse ID is still useful for the user's own reference.
+pub fn redact_machine_id_for_export(
+    profile: &HardwareCapabilityProfile,
+) -> HardwareCapabilityProfile {
+    let mut redacted = profile.clone();
+    redacted.machine_id = REDACTED_MACHINE_ID_PLACEHOLDER.to_string();
+    redacted
+}
+
 fn clone_field<T: Clone>(field: &HardwareField<T>) -> HardwareField<T> {
     HardwareField {
         value: field.value.clone(),
@@ -203,5 +224,19 @@ mod tests {
         assert_eq!(profile.calibration_record_count, 3);
         assert_eq!(profile.schema_version, SCHEMA_VERSION);
         assert!(profile.backends.cpu);
+    }
+
+    #[test]
+    fn redact_machine_id_for_export_replaces_the_real_id_and_nothing_else() {
+        let hw = crate::hardware::inspect(None);
+        let profile = build_profile(&hw, "2026-01-01T00:00:00Z".to_string(), 0);
+        let real_id = profile.machine_id.clone();
+
+        let redacted = redact_machine_id_for_export(&profile);
+        assert_eq!(redacted.machine_id, REDACTED_MACHINE_ID_PLACEHOLDER);
+        assert_ne!(redacted.machine_id, real_id);
+        // Everything else must be untouched.
+        assert_eq!(redacted.schema_version, profile.schema_version);
+        assert_eq!(redacted.captured_at_rfc3339, profile.captured_at_rfc3339);
     }
 }

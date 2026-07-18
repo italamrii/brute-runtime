@@ -1,4 +1,4 @@
-# BRUTE Runtime — Stage 0 + Stage 1
+# BRUTE Runtime — Stage 0 + Stage 1 + Stage 2
 
 A Windows-first local-AI optimization system, still CLI-only — no
 desktop UI yet. **Stage 0** proved the hard technical parts work with
@@ -6,9 +6,16 @@ real measurements (hardware inspection, GGUF parsing, llama.cpp
 benchmarking). **Stage 1** builds a truthful hardware-intelligence and
 model-fit engine on top: given a small local catalog of model builds, it
 estimates whether each one will fit your machine, ranks them by task and
-priority, and explains why — all before you download anything. See
+priority, and explains why — all before you download anything. **Stage
+2** turns BRUTE from "predicts what fits" into a real local runtime
+optimizer: it verifies backends actually work (not just that a driver
+was detected), safely benchmarks a bounded set of candidate runtime
+configurations for a model you already have, and saves the proven-best
+one as a reusable local profile. See
 [`docs/stage-1-hardware-intelligence.md`](docs/stage-1-hardware-intelligence.md)
-for the Stage 1 overview.
+and
+[`docs/stage-2-runtime-auto-tuning.md`](docs/stage-2-runtime-auto-tuning.md)
+for the full overviews.
 
 ## What Stage 0 does
 
@@ -60,7 +67,33 @@ See [`docs/stage-1-hardware-intelligence.md`](docs/stage-1-hardware-intelligence
 for commands and real output, and the methodology docs linked at the
 bottom of this file for exactly how every number is computed.
 
-## What Stage 0/1 intentionally do NOT do
+## What Stage 2 adds
+
+- **Backend capability verification** (`brute backends verify`): proves
+  CPU/CUDA/Vulkan actually launch a real process, load a real model, and
+  complete a real tiny benchmark — never claims a GPU backend works
+  merely because a driver was detected, and never silently falls back to
+  CPU while reporting GPU success.
+- **Safe, bounded runtime auto-tuning** (`brute tune run`): generates a
+  small, deterministic, pruned candidate list (thread count, GPU offload,
+  context/batch size), safely benchmarks each one under resource guards
+  (RAM/disk checks, timeouts, cooldowns, cooperative cancellation), and
+  classifies each candidate's stability across repeated independent runs
+  — never a brute-force cartesian search.
+- **Configuration ranking**: picks a winner for your chosen priority
+  (balanced by default) using a safety-first tiered comparator — a
+  marginally faster but unstable configuration never outranks a proven
+  stable one under the default priority.
+- **Local runtime profiles** (`brute profiles list`/`show`/`verify`/
+  `export`): saves the winning configuration locally, automatically
+  invalidated when the model, binaries, or machine change, and re-verified
+  (not just re-applied) before ever being treated as usable.
+
+See [`docs/stage-2-runtime-auto-tuning.md`](docs/stage-2-runtime-auto-tuning.md)
+for commands and real output, and the methodology docs linked at the
+bottom of this file.
+
+## What Stage 0/1/2 intentionally do NOT do
 
 - No desktop UI. CLI only.
 - No universal "AI capability score" — see `docs/measurement-methodology.md`.
@@ -206,6 +239,43 @@ files. Priorities: `fastest`, `balanced`, `highest-quality`,
 To grow the calibration store with a real measurement from your own
 machine, add `--save-calibration <path>` to a `brute benchmark` run.
 
+## Stage 2 commands (runtime auto-tuning & backend verification)
+
+```powershell
+# Verify CPU/CUDA/Vulkan actually work end to end (not just "detected")
+cargo run --release -- backends verify `
+  --model "C:\Models\your-model.gguf" --llama-bin ".tools\llama.cpp\b10064\cpu"
+
+# Show the bounded candidate plan without launching anything
+cargo run --release -- tune run `
+  --model "C:\Models\your-model.gguf" --llama-bin ".tools\llama.cpp\b10064\cpu" --dry-run
+
+# Actually run it, save the winning configuration as a local profile
+cargo run --release -- tune run `
+  --model "C:\Models\your-model.gguf" --llama-bin ".tools\llama.cpp\b10064\cpu" `
+  --priority balanced --save-profile
+
+# Check progress of a running (or the most recent) tuning run, from another terminal
+cargo run --release -- tune status
+
+# Request cancellation of a running tuning run
+cargo run --release -- tune cancel
+
+# Saved local runtime profiles
+cargo run --release -- profiles list
+cargo run --release -- profiles show <profile-id>
+cargo run --release -- profiles verify <profile-id> --model "C:\Models\your-model.gguf" --llama-bin ".tools\llama.cpp\b10064\cpu"
+cargo run --release -- profiles export <profile-id> --output profile.json
+```
+
+Priorities: `balanced` (default, safety-first — never lets a faster
+unstable configuration outrank a proven stable one), `fastest-generation`,
+`fastest-prompt-processing`, `lowest-memory`, `longest-context`,
+`maximum-stability`, `laptop-friendly`. Saved profiles and tuning
+progress/cancel state live under `%LOCALAPPDATA%\BruteRuntime\` — never
+committed to this repo, never uploaded anywhere. See
+`docs/privacy-model.md`.
+
 ## Interpreting confidence and unavailable values
 
 Every hardware and benchmark field looks like this in JSON:
@@ -246,3 +316,12 @@ building and verifying this on real hardware.
 - [`docs/recommendation-methodology.md`](docs/recommendation-methodology.md) — ranking weights and explainability
 - [`docs/calibration-methodology.md`](docs/calibration-methodology.md) — how real benchmarks ground the estimates
 - [`docs/stage-1-verification.md`](docs/stage-1-verification.md) — Stage 1: what was actually run and observed, including two real bugs found and fixed live
+- [`docs/stage-2-runtime-auto-tuning.md`](docs/stage-2-runtime-auto-tuning.md) — Stage 2 overview and commands
+- [`docs/backend-verification.md`](docs/backend-verification.md) — the verification pipeline and a real silent-fallback bug it caught
+- [`docs/tuning-search-space.md`](docs/tuning-search-space.md) — bounded candidate generation and pruning rules
+- [`docs/stability-classification.md`](docs/stability-classification.md) — the 5-state cross-repetition stability formula
+- [`docs/tuning-ranking-methodology.md`](docs/tuning-ranking-methodology.md) — the tiered ranking comparator and why not a weighted sum
+- [`docs/cancellation-and-process-safety.md`](docs/cancellation-and-process-safety.md) — timeouts, retries, resource guards, cooperative cancellation
+- [`docs/runtime-profile-schema.md`](docs/runtime-profile-schema.md) — saved profile fields, invalidation, sanity checking
+- [`docs/privacy-model.md`](docs/privacy-model.md) — the mandatory no-telemetry/no-cloud list, `machine_id` vs `local_instance_id`
+- [`docs/stage-2-verification.md`](docs/stage-2-verification.md) — Stage 2: what was actually run and observed, including a real bug found and fixed live
