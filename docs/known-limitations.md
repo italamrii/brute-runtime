@@ -1,4 +1,4 @@
-# Known limitations — Stage 0, Stage 1, and Stage 2
+# Known limitations — Stage 0, Stage 1, Stage 2, and Stage 3
 
 These are real, observed limitations, not a hedge-everything disclaimer.
 Each one was either hit directly during verification on this machine or
@@ -213,3 +213,66 @@ is a deliberate, documented scope cut.
   64/32 for tuning), not the model's full practical context - by
   design, to keep a 32-candidate plan benchmarkable in bounded time; see
   `docs/tuning-search-space.md` and `docs/cancellation-and-process-safety.md`.
+
+## Stage 3: found and fixed during development
+
+- **A real cross-backend false-positive in calibration matching.**
+  `associations::find_calibration_matches_for` originally iterated over
+  CPU/CUDA/Vulkan and trusted `calibration::find_nearest`'s result for
+  each - but `find_nearest` doesn't filter by backend (a mismatch only
+  lowers its proximity score), so it returned the same single CPU
+  record as a "match" for all three backends. A live test with one CPU
+  record caught this directly (expected 1 match, got 3). Fixed by
+  additionally requiring the returned record's own `backend` field to
+  equal the one being asked about. See
+  `docs/runtime-profile-association.md`.
+
+## Stage 3: deliberate scope cuts
+
+- **Managed-copy import mode (`--copy-into-library`) is not
+  implemented.** The spec explicitly permits skipping it "if it adds
+  unnecessary complexity" - every Stage 3 import operates on the file's
+  existing location. `LibraryEntry.managed_copy` is `false` on every
+  entry this codebase creates, so `remove-managed` always honestly
+  reports there's nothing to remove; its path-traversal guard is real
+  and tested regardless. See `docs/model-import-and-verification.md`.
+- **`ExpectedHashMatched` trust can never be reached today** - the
+  catalog schema (`catalog::ModelBuild`) has no field for an
+  independently curated expected SHA-256, only descriptive metadata.
+  The strongest automatic catalog match is `CatalogMetadataMatched`
+  (file size + GGUF metadata agree), one honest tier below what a real
+  hash match would justify. See `docs/trust-and-provenance.md`.
+- **The real Qwen model's catalog match is `Weak`, not `Strong`**,
+  because its GGUF-parsed quantization label (`MOSTLY_Q4_K_M`, from
+  llama.cpp's legacy `general.file_type` enum) differs textually from
+  the curated catalog's label (`Q4_K_M`) - a real naming-convention
+  mismatch observed live, not a hypothetical. Normalizing quantization
+  strings before comparison would close this gap; not attempted this
+  stage to avoid destabilizing Stage 1's existing catalog-matching
+  conventions.
+- **Runtime profile and calibration associations are computed live, not
+  persisted** on `LibraryEntry`, by deliberate design (avoids a second
+  source of truth that could drift) - see
+  `docs/runtime-profile-association.md`. This means listing associations
+  for many entries costs a fresh lookup each time rather than an O(1)
+  field read; acceptable at the measured scale (see
+  `docs/stage-3-verification.md`), worth revisiting if entry counts grow
+  far beyond what was tested.
+- **Quarantine blocks `brute library verify`, but no `brute benchmark`/
+  `brute tune` command yet consults a library entry's quarantine status**
+  - Stage 3's deliverable is the library system itself
+  (`is_quarantined()` exists as the check a future integration would
+  call), not modifying Stage 0/2's benchmark/tune commands to look
+  models up by library ID at all. Every Stage 0-2 command still takes a
+  raw file path, unaware the library exists.
+- **"Inaccessible file" (permission-denied, as opposed to missing) has
+  no dedicated live test** - reliably provisioning a permission-denied
+  fixture in an automated Windows test environment is impractical; the
+  code path is exercised by construction (`quick_file_status`'s
+  `Inaccessible` branch), not by a dedicated fixture.
+- **Long-Windows-path handling relies on `std::fs`'s own transparent
+  long-path support** rather than an explicit `\\?\` prefix construction
+  in `library` code - verified working (a 12-level-deep synthetic path
+  well past 260 characters was discovered correctly), but not stress-
+  tested against the absolute historical `MAX_PATH` edge cases some
+  older Windows APIs still enforce.

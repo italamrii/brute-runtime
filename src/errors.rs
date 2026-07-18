@@ -22,6 +22,9 @@ pub enum BruteError {
     #[error(transparent)]
     Catalog(#[from] CatalogError),
 
+    #[error(transparent)]
+    Library(#[from] LibraryError),
+
     #[error("io error at {context}: {source}")]
     Io {
         context: String,
@@ -173,4 +176,54 @@ pub enum CatalogError {
 
     #[error("no catalog entry with id {0:?}")]
     NotFound(String),
+}
+
+/// The local model library's index file is untrusted-ish input too (it's
+/// local, but a crash mid-write or a hand edit could still corrupt it) -
+/// every variant corresponds to a concrete failure mode, never a generic
+/// "serde failed."
+#[derive(Debug, Error)]
+pub enum LibraryError {
+    #[error("failed to read library index {path}: {source}")]
+    Read {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("failed to write library index {path}: {source}")]
+    Write {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error(
+        "library index {path} is not valid JSON or does not match the expected schema: {source}"
+    )]
+    Parse {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+
+    #[error("no library entry with id {0:?}")]
+    NotFound(String),
+
+    #[error("library entry {0:?} is quarantined: {1}")]
+    Quarantined(String, String),
+
+    #[error(
+        "relocation target does not match the original artifact's hash: expected {expected}, found {actual}"
+    )]
+    RelocationHashMismatch { expected: String, actual: String },
+
+    #[error("path escapes the managed library root: {0}")]
+    PathEscapesManagedRoot(PathBuf),
+
+    #[error("{0:?} is not a managed (BRUTE-copied) library entry - nothing to remove")]
+    NotManaged(String),
+
+    #[error("scan directory does not exist or is not a directory: {0}")]
+    InvalidScanRoot(PathBuf),
 }

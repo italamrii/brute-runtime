@@ -1,4 +1,4 @@
-# BRUTE Runtime — Stage 0 + Stage 1 + Stage 2
+# BRUTE Runtime — Stage 0 + Stage 1 + Stage 2 + Stage 3
 
 A Windows-first local-AI optimization system, still CLI-only — no
 desktop UI yet. **Stage 0** proved the hard technical parts work with
@@ -11,10 +11,16 @@ priority, and explains why — all before you download anything. **Stage
 optimizer: it verifies backends actually work (not just that a driver
 was detected), safely benchmarks a bounded set of candidate runtime
 configurations for a model you already have, and saves the proven-best
-one as a reusable local profile. See
-[`docs/stage-1-hardware-intelligence.md`](docs/stage-1-hardware-intelligence.md)
+one as a reusable local profile. **Stage 3** turns BRUTE into a trusted
+local model library: it safely discovers, imports, verifies, and tracks
+the GGUF models you already have on disk — content-hash identity, no
+copying/moving/executing by default, honest trust states instead of
+inferred "official" status, and health/duplicate/storage reporting that
+never deletes anything on its own. See
+[`docs/stage-1-hardware-intelligence.md`](docs/stage-1-hardware-intelligence.md),
+[`docs/stage-2-runtime-auto-tuning.md`](docs/stage-2-runtime-auto-tuning.md),
 and
-[`docs/stage-2-runtime-auto-tuning.md`](docs/stage-2-runtime-auto-tuning.md)
+[`docs/stage-3-trusted-local-library.md`](docs/stage-3-trusted-local-library.md)
 for the full overviews.
 
 ## What Stage 0 does
@@ -93,7 +99,38 @@ See [`docs/stage-2-runtime-auto-tuning.md`](docs/stage-2-runtime-auto-tuning.md)
 for commands and real output, and the methodology docs linked at the
 bottom of this file.
 
-## What Stage 0/1/2 intentionally do NOT do
+## What Stage 3 adds
+
+- **Trusted local model library** (`brute library scan`/`import`/`list`/
+  `show`): tracks the GGUF models you already have by content hash, not
+  path — renamed files are recognized as the same model, same-name
+  different-content files stay separate, and nothing is copied, moved,
+  or executed by default.
+- **Honest structural + trust verification** (`brute library verify`):
+  never collapses "is this a valid GGUF," "does the hash match," and
+  "is this an official/trusted source" into one boolean — a structurally
+  valid file is not automatically trusted.
+- **Duplicate detection and storage analysis** (`brute library
+  duplicates`/`storage`): groups identical artifacts by hash and reports
+  potential reclaimable space — never presented as safe to delete until
+  you confirm it yourself.
+- **Move/rename recovery** (`brute library locate`): only rebinds a
+  tracked model's path once the candidate file's hash is confirmed
+  identical to the original; Stage 2 runtime profiles and Stage 1
+  calibration records stay valid across the move automatically, since
+  they're associated by content hash too.
+- **Library-wide health audit** (`brute library audit`): missing/
+  modified/corrupt entries, duplicates, stale profiles/calibrations, and
+  privacy concerns in your own alias/notes text — all in one report,
+  with suggested (never automatic) next steps.
+- **Safe lifecycle management**: `forget` removes library metadata only
+  and never touches your file; quarantine/unquarantine always requires a
+  real passing re-verification, never a bare flag flip.
+
+See [`docs/stage-3-trusted-local-library.md`](docs/stage-3-trusted-local-library.md)
+for commands and real output.
+
+## What Stage 0/1/2/3 intentionally do NOT do
 
 - No desktop UI. CLI only.
 - No universal "AI capability score" — see `docs/measurement-methodology.md`.
@@ -109,6 +146,13 @@ bottom of this file.
 - CUDA/Vulkan are *detected*; only the CPU backend was exercised live in
   this environment (no CUDA toolkit was installed here) — see
   `docs/known-limitations.md`.
+- Does not scan a whole disk or scan automatically/in the background —
+  every library scan/import names an explicit directory or file.
+- Does not copy, move, rename, or delete any model file you manage
+  yourself — `library forget` removes tracking metadata only.
+- Does not infer "official" model status from a filename, publisher
+  metadata, or the folder a file was found in — see
+  `docs/trust-and-provenance.md`.
 
 ## Requirements
 
@@ -276,6 +320,57 @@ progress/cancel state live under `%LOCALAPPDATA%\BruteRuntime\` — never
 committed to this repo, never uploaded anywhere. See
 `docs/privacy-model.md`.
 
+## Stage 3 commands (trusted local model library)
+
+```powershell
+# Discover GGUF files in a directory - never imports anything
+cargo run --release -- library scan "C:\Models"
+cargo run --release -- library scan "C:\Models" --recursive
+
+# Explicitly import one model - reads/hashes/parses only, never modifies it
+cargo run --release -- library import "C:\Models\your-model.gguf" --alias "My model"
+
+# Scan + import every GGUF candidate in a directory
+cargo run --release -- library import-directory "C:\Models" --recursive
+
+# List / inspect tracked models
+cargo run --release -- library list
+cargo run --release -- library show <library-id>
+
+# Full re-verification (recomputes the hash) - one entry or all
+cargo run --release -- library verify <library-id>
+cargo run --release -- library verify --all
+
+# Cheap size/mtime-only refresh (no hashing)
+cargo run --release -- library refresh --all
+
+# Library-wide health report, duplicate groups, storage usage
+cargo run --release -- library audit
+cargo run --release -- library duplicates
+cargo run --release -- library storage
+
+# Recover a moved/renamed model (only rebinds on an exact hash match)
+cargo run --release -- library locate <library-id> "C:\NewLocation\model.gguf"
+
+# Local metadata only - never touches the file
+cargo run --release -- library alias <library-id> "Display name"
+cargo run --release -- library note <library-id> "Free-text note"
+
+# Remove tracking metadata - the file is NOT deleted
+cargo run --release -- library forget <library-id>
+
+# Hold a suspicious entry back from use; lifting it re-verifies first
+cargo run --release -- library quarantine <library-id> --reason "hash mismatch"
+cargo run --release -- library unquarantine <library-id>
+
+# Sanitized export - no local paths, no machine identifiers
+cargo run --release -- library export --output library.json
+```
+
+Library state (`index.json`) lives under
+`%LOCALAPPDATA%\BruteRuntime\library\` — never committed to this repo,
+never uploaded anywhere. See `docs/library-privacy.md`.
+
 ## Interpreting confidence and unavailable values
 
 Every hardware and benchmark field looks like this in JSON:
@@ -325,3 +420,16 @@ building and verifying this on real hardware.
 - [`docs/runtime-profile-schema.md`](docs/runtime-profile-schema.md) — saved profile fields, invalidation, sanity checking
 - [`docs/privacy-model.md`](docs/privacy-model.md) — the mandatory no-telemetry/no-cloud list, `machine_id` vs `local_instance_id`
 - [`docs/stage-2-verification.md`](docs/stage-2-verification.md) — Stage 2: what was actually run and observed, including a real bug found and fixed live
+- [`docs/stage-3-trusted-local-library.md`](docs/stage-3-trusted-local-library.md) — Stage 3 overview and commands
+- [`docs/local-library-schema.md`](docs/local-library-schema.md) — the storage-format decision, schema, atomicity, migration
+- [`docs/model-identity.md`](docs/model-identity.md) — why content hash, not path, is identity
+- [`docs/model-import-and-verification.md`](docs/model-import-and-verification.md) — the import pipeline and the `GgufVerification` structure
+- [`docs/trust-and-provenance.md`](docs/trust-and-provenance.md) — the trust states and why some can never fire with today's catalog data
+- [`docs/duplicate-detection.md`](docs/duplicate-detection.md) — SHA-256-based grouping, never filename similarity
+- [`docs/model-file-change-detection.md`](docs/model-file-change-detection.md) — cheap vs full verification, and the `locate` recovery workflow
+- [`docs/runtime-profile-association.md`](docs/runtime-profile-association.md) — why associations are computed live, never persisted, and a real bug that taught why
+- [`docs/storage-management.md`](docs/storage-management.md) — usage totals, duplicates as a potential (never safe) reclaim estimate
+- [`docs/quarantine-and-recovery.md`](docs/quarantine-and-recovery.md) — forget vs remove-managed vs (never) delete; quarantine that can't be bypassed
+- [`docs/library-security.md`](docs/library-security.md) — path traversal, scan loop prevention, untrusted metadata
+- [`docs/library-privacy.md`](docs/library-privacy.md) — what's redacted on export and why nothing more needs to be
+- [`docs/stage-3-verification.md`](docs/stage-3-verification.md) — Stage 3: what was actually run and observed, including a real bug found and fixed live

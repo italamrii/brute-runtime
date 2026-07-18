@@ -1,4 +1,4 @@
-# Privacy model — Stage 2
+# Privacy model — Stage 2 and Stage 3
 
 **Core product promise: your data never leaves your device.**
 
@@ -104,6 +104,20 @@ subprocesses (`llama-cli.exe`/`llama-bench.exe`) via the same argv-based
 applies unchanged. No result from either command is sent anywhere; it is
 printed to the terminal and/or written to a local file the user names
 explicitly.
+
+## Stage 3: the local model library
+
+`%LOCALAPPDATA%\BruteRuntime\library\index.json` joins `profiles\` and
+`instance-id` under the same local-only root. Full detail (what's
+stored, what's redacted on export, the "local private state may
+legitimately contain real paths" split) lives in its own dedicated
+document: `docs/library-privacy.md`. In short: `LibraryEntry` has no
+machine-identity field at all (a model's identity is content hash plus
+GGUF metadata, which says nothing about the machine), so there is
+nothing to redact there beyond the real filesystem paths themselves -
+`brute library export` replaces both `current_path` and
+`original_import_path` with the placeholder `<LOCAL_MODEL_PATH>` before
+writing anything.
 
 ## Residual honesty notes
 

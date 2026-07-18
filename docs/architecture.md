@@ -1,4 +1,4 @@
-# Architecture — Stage 0, Stage 1, and Stage 2
+# Architecture — Stage 0, Stage 1, Stage 2, and Stage 3
 
 BRUTE Runtime is a single Rust binary crate (`brute`), not a workspace.
 The module boundaries below are the seams a future multi-crate split
@@ -81,6 +81,18 @@ src/
     ranking.rs              lexicographic-tier configuration ranking
     runtime_profile.rs      saved local profile schema, invalidation, sanity
     apply.rs                apply-and-verify workflow for a saved profile
+  library/
+    mod.rs               Stage 3: LibraryStore/LibraryEntry schema, atomic
+                       JSON persistence, quarantine/forget/remove-managed
+    scan.rs                bounded/cancellable directory discovery
+    import.rs               validate/hash/parse pipeline + catalog matching
+    verify.rs                GgufVerification pipeline, file-change
+                          detection, locate/relocation recovery
+    duplicates.rs             SHA-256-based duplicate grouping
+    associations.rs            live lookup of Stage 2 profiles / Stage 1
+                            calibration records by content hash
+    storage.rs                read-only storage usage analysis
+    audit.rs                  library-wide health report aggregation
 ```
 
 ## Data flow
@@ -206,6 +218,57 @@ the whole plan pure, deterministic, and computable in one pass, at the
 documented cost of not exploring cross-dimension interactions. See
 `docs/tuning-search-space.md`.
 
+## Stage 3 data flow
+
+```
+brute library scan <dir>
+  library::scan::scan()   -> ScanResult (never imports)
+
+brute library import <path>
+  models::inspect_model()   (Stage 0: validate, hash, parse - unchanged)
+  library::import::match_against_catalog()
+  library::verify::verify_artifact()
+  -> create or update LibraryEntry in LibraryStore -> save_to()
+
+brute library verify <id> | --all
+  library::verify::verify_entry()   (recomputes hash, updates trust/file_status)
+
+brute library locate <id> <new-path>
+  security::validate_regular_file() -> sha256_file() -> compare to entry.sha256
+  match: rebind current_path, verify_entry()   |   mismatch: reject, entry untouched
+
+brute library show <id>
+  library::associations::find_runtime_profiles_for()     (Stage 2 profiles, by hash)
+  library::associations::find_calibration_matches_for()   (Stage 1 calibration, by hash)
+
+brute library audit
+  library::duplicates::find_duplicate_groups()
+  library::associations::*   (stale-profile/stale-calibration detection)
+  -> AuditReport
+```
+
+## Why the local library is a bounded JSON file, not SQLite
+
+Every real lookup Stage 3 needs is "by ID," "by hash," or "scan every
+entry" - none of which need a query planner or joins, and entry counts
+are expected in the hundreds to low thousands (measured directly to
+10,000 synthetic entries - see `docs/stage-3-verification.md`).
+Introducing `rusqlite`/`sqlx` would add a new dependency and a migration
+framework for a problem `Vec<LibraryEntry>` plus a `BTreeMap` grouping
+already solves within milliseconds at the tested scale. Full
+justification: `docs/local-library-schema.md`.
+
+## Why runtime-profile/calibration associations are computed live, never persisted
+
+A persisted `associated_runtime_profile_ids` field on `LibraryEntry`
+would be a second source of truth that could silently drift from the
+actual profile store (e.g. a profile deleted directly from
+`%LOCALAPPDATA%\BruteRuntime\profiles\` would leave a dangling
+reference). `library::associations` looks both up fresh, by content
+hash, on every call - the cost is negligible at the measured scale, and
+the result can never be stale. See
+`docs/runtime-profile-association.md`.
+
 ## Why Stage 1 has a separate `Provenance`/`Valued<T>` instead of widening `Confidence`
 
 Stage 0's `hardware::Confidence` is 4-way (Measured/Detected/Inferred/
@@ -248,3 +311,18 @@ types and JSON shape are completely unchanged - verified by
   proper cross-process progress channel (rather than the current
   best-effort `tune-status.json` file) would only need to change the
   CLI-layer closures in `main.rs`, not the runner itself.
+- `library::LibraryEntry.managed_copy` and `remove_managed`'s root-
+  boundary check already exist, ready for a future managed-copy import
+  mode (`--copy-into-library`) without needing new safety plumbing - see
+  `docs/model-import-and-verification.md`.
+- Stage 0-2 commands (`brute benchmark`, `brute tune run`, etc.) still
+  take a raw file path - a future stage could add a `--library-id`
+  alternative that resolves through `LibraryStore` (and, at that point,
+  would be the natural place to make quarantine actually block a
+  launch, not just `brute library verify`).
+- `catalog::ModelBuild` has no field for an independently curated
+  expected SHA-256; adding one (verified against a real downloaded
+  file, as one dev-catalog entry already is) would let
+  `import::match_against_catalog` reach the `Exact`/`ExpectedHashMatched`
+  tiers that exist in the vocabulary today but can never fire - see
+  `docs/trust-and-provenance.md`.

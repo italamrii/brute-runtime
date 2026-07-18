@@ -1,4 +1,4 @@
-# Security model — Stage 0, Stage 1, and Stage 2
+# Security model — Stage 0, Stage 1, Stage 2, and Stage 3
 
 ## Threats considered
 
@@ -118,8 +118,40 @@
     spawns a `llama-cli`/`llama-bench` process without eventually
     waiting on it. See `docs/cancellation-and-process-safety.md`.
 
-## What Stage 0/1/2 explicitly do NOT do
+12. **Directory scan loop prevention is real, not theoretical (Stage
+    3).** `library::scan` tracks canonical directory paths already
+    descended into - verified live with a real Windows junction
+    (`mklink /J`) pointing back at an ancestor, confirming the scan
+    terminates rather than recursing forever. See
+    `docs/library-security.md`.
 
+13. **The managed-copy deletion boundary is enforced even though no
+    code path can trigger it yet (Stage 3).** `remove_managed`
+    canonicalizes the target path and verifies it falls inside the
+    managed library root *before* calling `remove_file` - tested with a
+    synthetic entry forcing `managed_copy: true` outside that root. See
+    `docs/library-security.md` and `docs/quarantine-and-recovery.md`.
+
+14. **User-supplied library metadata (alias/notes) is never interpreted
+    as a path or command (Stage 3).** Verified with deliberately unusual
+    text (quotes, backslashes, embedded newlines, a NUL byte, a
+    path-traversal-shaped string) round-tripping through storage exactly
+    as given, with the entry's real `current_path` completely
+    unaffected. See `docs/library-security.md`.
+
+## What Stage 0/1/2/3 explicitly do NOT do
+
+- Does not execute anything discovered by a scan or presented to
+  import, ever (Stage 3) - a candidate file is opened only to read its
+  first 4 magic bytes (scan) or streamed for hashing/GGUF parsing
+  (import), never run. See `docs/library-security.md`.
+- Does not delete an external (non-BRUTE-managed) model file under any
+  command (Stage 3) - `forget` only ever removes library metadata;
+  `remove-managed` only ever operates on managed copies, which Stage 3
+  never creates. See `docs/quarantine-and-recovery.md`.
+- Does not scan a whole disk or scan automatically/in the background
+  (Stage 3) - every `brute library scan`/`import-directory` call names
+  an explicit directory the user chose.
 - Does not modify BIOS, drivers, power limits, voltage, clocks, fan
   curves, registry performance settings, or Windows security settings
   (Stage 2). Tuning only ever changes runtime parameters passed to

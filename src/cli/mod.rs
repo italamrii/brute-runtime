@@ -175,6 +175,13 @@ pub enum Commands {
         #[command(subcommand)]
         action: ProfilesCommands,
     },
+    /// Trusted local model library (Stage 3): discovers, imports,
+    /// verifies, and tracks GGUF models already on disk - never uploads,
+    /// executes, or scans in the background.
+    Library {
+        #[command(subcommand)]
+        action: LibraryCommands,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -274,6 +281,141 @@ pub enum ProfilesCommands {
     /// Export a saved profile to a file with the machine ID redacted.
     Export {
         profile_id: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum LibraryCommands {
+    /// Discover GGUF files under a directory. Never imports, never
+    /// executes anything found, never scans automatically or in the
+    /// background - always one explicit, user-requested pass. Not
+    /// recursive unless `--recursive` is given.
+    Scan {
+        path: PathBuf,
+        #[arg(long)]
+        recursive: bool,
+        #[arg(long)]
+        max_depth: Option<u32>,
+        #[arg(long)]
+        max_files: Option<usize>,
+        #[arg(long)]
+        max_total_bytes: Option<u64>,
+        #[arg(long)]
+        max_duration_secs: Option<u64>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Explicitly import one model file - reads and hashes it, never
+    /// executes, uploads, copies, or modifies it.
+    Import {
+        path: PathBuf,
+        /// A display name for this entry - purely local metadata.
+        #[arg(long)]
+        alias: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Scans a directory and imports every genuine GGUF candidate found.
+    ImportDirectory {
+        path: PathBuf,
+        #[arg(long)]
+        recursive: bool,
+        #[arg(long)]
+        max_depth: Option<u32>,
+        #[arg(long)]
+        max_files: Option<usize>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// List every library entry.
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show one library entry's full details.
+    Show {
+        library_id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Full verification pass (recomputes the hash) against one entry,
+    /// or every entry with `--all`.
+    Verify {
+        library_id: Option<String>,
+        #[arg(long)]
+        all: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Cheap size/mtime-only refresh (no hashing) against one entry, or
+    /// every entry with `--all`.
+    Refresh {
+        library_id: Option<String>,
+        #[arg(long)]
+        all: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Library-wide health report - missing/modified/corrupt entries,
+    /// duplicates, stale profiles/calibrations, privacy concerns.
+    Audit {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Report groups of entries sharing an identical content hash.
+    Duplicates {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Storage usage summary - totals, duplicates, largest models,
+    /// breakdown by architecture/quantization.
+    Storage {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Recover a moved/renamed model by pointing at its new path - only
+    /// rebinds the entry if the new file's hash matches exactly.
+    Locate {
+        library_id: String,
+        new_path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Set a display name for an entry (local metadata only).
+    Alias { library_id: String, name: String },
+    /// Attach a free-text note to an entry (local metadata only).
+    Note { library_id: String, text: String },
+    /// Remove the library metadata entry - never deletes the underlying
+    /// file.
+    Forget { library_id: String },
+    /// Delete a BRUTE-managed copy from disk (Stage 3 does not create
+    /// any managed copies - see docs/model-import-and-verification.md -
+    /// so this always reports there is nothing to remove).
+    RemoveManaged {
+        library_id: String,
+        #[arg(long)]
+        confirm: bool,
+    },
+    /// Hold an entry back from benchmarking/launch pending
+    /// re-verification.
+    Quarantine {
+        library_id: String,
+        #[arg(long)]
+        reason: String,
+    },
+    /// Lift quarantine - only succeeds after a fresh verification pass
+    /// actually passes; never bypasses validation.
+    Unquarantine { library_id: String },
+    /// List currently quarantined entries.
+    Quarantined {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Export the full library index as sanitized JSON - no local paths,
+    /// no machine ID.
+    Export {
         #[arg(long)]
         output: PathBuf,
     },

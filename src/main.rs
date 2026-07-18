@@ -8,6 +8,7 @@ mod estimator;
 mod fit;
 mod hardware;
 mod identity;
+mod library;
 mod models;
 mod profile;
 mod provenance;
@@ -17,6 +18,8 @@ mod runtime;
 mod security;
 #[cfg(test)]
 mod stage1_fixtures_test;
+#[cfg(test)]
+mod stage3_performance_test;
 mod tuning;
 
 use benchmark::BenchmarkReport;
@@ -25,7 +28,7 @@ use chrono::Utc;
 use clap::Parser;
 use cli::{
     BackendsCommands, BenchmarkArgs, CalibrationsCommands, CatalogArgs, CatalogCommands, Cli,
-    Commands, ModelCommands, ProfileCommands, ProfilesCommands, TuneCommands,
+    Commands, LibraryCommands, ModelCommands, ProfileCommands, ProfilesCommands, TuneCommands,
 };
 use errors::BruteError;
 use recommend::Priority;
@@ -195,6 +198,106 @@ fn main() -> ExitCode {
         Commands::Profiles {
             action: ProfilesCommands::Export { profile_id, output },
         } => cmd_profiles_export(&profile_id, &output),
+        Commands::Library {
+            action:
+                LibraryCommands::Scan {
+                    path,
+                    recursive,
+                    max_depth,
+                    max_files,
+                    max_total_bytes,
+                    max_duration_secs,
+                    json,
+                },
+        } => cmd_library_scan(
+            &path,
+            recursive,
+            max_depth,
+            max_files,
+            max_total_bytes,
+            max_duration_secs,
+            json,
+        ),
+        Commands::Library {
+            action: LibraryCommands::Import { path, alias, json },
+        } => cmd_library_import(&path, alias, json),
+        Commands::Library {
+            action:
+                LibraryCommands::ImportDirectory {
+                    path,
+                    recursive,
+                    max_depth,
+                    max_files,
+                    json,
+                },
+        } => cmd_library_import_directory(&path, recursive, max_depth, max_files, json),
+        Commands::Library {
+            action: LibraryCommands::List { json },
+        } => cmd_library_list(json),
+        Commands::Library {
+            action: LibraryCommands::Show { library_id, json },
+        } => cmd_library_show(&library_id, json),
+        Commands::Library {
+            action:
+                LibraryCommands::Verify {
+                    library_id,
+                    all,
+                    json,
+                },
+        } => cmd_library_verify(library_id.as_deref(), all, json),
+        Commands::Library {
+            action:
+                LibraryCommands::Refresh {
+                    library_id,
+                    all,
+                    json,
+                },
+        } => cmd_library_refresh(library_id.as_deref(), all, json),
+        Commands::Library {
+            action: LibraryCommands::Audit { json },
+        } => cmd_library_audit(json),
+        Commands::Library {
+            action: LibraryCommands::Duplicates { json },
+        } => cmd_library_duplicates(json),
+        Commands::Library {
+            action: LibraryCommands::Storage { json },
+        } => cmd_library_storage(json),
+        Commands::Library {
+            action:
+                LibraryCommands::Locate {
+                    library_id,
+                    new_path,
+                    json,
+                },
+        } => cmd_library_locate(&library_id, &new_path, json),
+        Commands::Library {
+            action: LibraryCommands::Alias { library_id, name },
+        } => cmd_library_alias(&library_id, name),
+        Commands::Library {
+            action: LibraryCommands::Note { library_id, text },
+        } => cmd_library_note(&library_id, text),
+        Commands::Library {
+            action: LibraryCommands::Forget { library_id },
+        } => cmd_library_forget(&library_id),
+        Commands::Library {
+            action:
+                LibraryCommands::RemoveManaged {
+                    library_id,
+                    confirm,
+                },
+        } => cmd_library_remove_managed(&library_id, confirm),
+        Commands::Library {
+            action: LibraryCommands::Quarantine { library_id, reason },
+        } => cmd_library_quarantine(&library_id, reason),
+        Commands::Library {
+            action: LibraryCommands::Unquarantine { library_id },
+        } => cmd_library_unquarantine(&library_id),
+        Commands::Library {
+            action: LibraryCommands::Quarantined { json },
+        } => cmd_library_quarantined(json),
+        Commands::Library {
+            action: LibraryCommands::Export { output },
+        } => cmd_library_export(&output),
     };
 
     match result {
@@ -1577,6 +1680,635 @@ fn cmd_profiles_export(profile_id: &str, output: &Path) -> Result<(), BruteError
     println!(
         "Profile exported to {} (machine ID redacted).",
         output.display()
+    );
+    Ok(())
+}
+
+// ---------------------------------------------------------------------
+// Stage 3: trusted local model library.
+// ---------------------------------------------------------------------
+
+fn load_library_store() -> Result<library::LibraryStore, BruteError> {
+    library::LibraryStore::load_from(&library::default_index_path()).map_err(BruteError::from)
+}
+
+fn save_library_store(store: &library::LibraryStore) -> Result<(), BruteError> {
+    store
+        .save_to(&library::default_index_path())
+        .map_err(BruteError::from)
+}
+
+/// Catalog matching is supplementary, not required - a missing or
+/// unreadable dev catalog never blocks a library operation.
+fn try_load_catalog() -> Option<catalog::Catalog> {
+    catalog::load_catalog(Path::new(cli::DEFAULT_CATALOG_PATH)).ok()
+}
+
+fn try_load_calibration() -> calibration::CalibrationStore {
+    calibration::CalibrationStore::load(Path::new(cli::DEFAULT_CALIBRATION_PATH))
+        .unwrap_or_default()
+}
+
+/// Spec section 16: license/commercial-use metadata is displayed
+/// separately from artifact integrity and source provenance, and never
+/// upgraded into a legal claim BRUTE didn't actually establish.
+fn describe_license_and_commercial_use(catalog_id: Option<&str>) -> (String, String) {
+    let Some(catalog_id) = catalog_id else {
+        return (
+            "License metadata unknown - no catalog match".to_string(),
+            "Commercial use not confirmed - review official license before deployment".to_string(),
+        );
+    };
+    let Some(catalog) = try_load_catalog() else {
+        return (
+            "License metadata unknown - catalog unavailable".to_string(),
+            "Commercial use not confirmed - review official license before deployment".to_string(),
+        );
+    };
+    let Some(build) = catalog.get(catalog_id) else {
+        return (
+            "License metadata unknown - catalog entry not found".to_string(),
+            "Commercial use not confirmed - review official license before deployment".to_string(),
+        );
+    };
+
+    let license = match &build.license {
+        catalog::License::Known { identifier } => {
+            format!("License metadata available: {identifier}")
+        }
+        catalog::License::Unknown => "License metadata unknown".to_string(),
+    };
+    let commercial = match build.commercial_use {
+        catalog::CommercialUse::Allowed => {
+            "Commercial use: allowed per catalog metadata - review official license before deployment"
+                .to_string()
+        }
+        catalog::CommercialUse::Restricted => {
+            "Commercial use: restricted per catalog metadata - review official license before deployment"
+                .to_string()
+        }
+        catalog::CommercialUse::Unknown => {
+            "Commercial use not confirmed - review official license before deployment".to_string()
+        }
+    };
+    (license, commercial)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cmd_library_scan(
+    path: &Path,
+    recursive: bool,
+    max_depth: Option<u32>,
+    max_files: Option<usize>,
+    max_total_bytes: Option<u64>,
+    max_duration_secs: Option<u64>,
+    json: bool,
+) -> Result<(), BruteError> {
+    let mut options = library::scan::ScanOptions {
+        recursive,
+        ..library::scan::ScanOptions::default()
+    };
+    if let Some(d) = max_depth {
+        options.max_depth = d;
+    }
+    if let Some(f) = max_files {
+        options.max_files = f;
+    }
+    if let Some(b) = max_total_bytes {
+        options.max_total_bytes = b;
+    }
+    if let Some(s) = max_duration_secs {
+        options.max_duration = Duration::from_secs(s);
+    }
+
+    let result = library::scan::scan(path, &options, || false)?;
+
+    if json {
+        println!("{}", to_json(&result)?);
+    } else {
+        println!(
+            "Scanned {} (recursive={recursive}): {} candidate(s) found across {} director{}",
+            path.display(),
+            result.discovered.len(),
+            result.directories_visited,
+            if result.directories_visited == 1 {
+                "y"
+            } else {
+                "ies"
+            }
+        );
+        for file in &result.discovered {
+            println!(
+                "  [{:?}] {} ({} bytes)",
+                file.kind,
+                file.path.display(),
+                file.size_bytes
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "?".to_string())
+            );
+        }
+        if result.truncated_by_file_count {
+            println!("Stopped early - max file count reached.");
+        }
+        if result.truncated_by_total_size {
+            println!("Stopped early - max total size reached.");
+        }
+        if result.truncated_by_time {
+            println!("Stopped early - time limit reached.");
+        }
+        if result.inaccessible_directories > 0 {
+            println!(
+                "{} director{} could not be read (permissions).",
+                result.inaccessible_directories,
+                if result.inaccessible_directories == 1 {
+                    "y"
+                } else {
+                    "ies"
+                }
+            );
+        }
+        println!("\nThis was a scan only - nothing was imported. Use `brute library import`.");
+    }
+    Ok(())
+}
+
+fn cmd_library_import(path: &Path, alias: Option<String>, json: bool) -> Result<(), BruteError> {
+    let mut store = load_library_store()?;
+    let catalog = try_load_catalog();
+    let outcome = library::import::import_model(path, alias, &mut store, catalog.as_ref())?;
+    save_library_store(&store)?;
+
+    if json {
+        println!("{}", to_json(&outcome)?);
+    } else {
+        println!(
+            "{}",
+            if outcome.was_new {
+                "Imported a new library entry."
+            } else {
+                "Re-verified an existing library entry."
+            }
+        );
+        println!("  Library ID: {}", outcome.library_id);
+        println!(
+            "  Integrity: {:?}  Trust: {:?}",
+            outcome.verification.overall_integrity, outcome.verification.trust
+        );
+        if !outcome.duplicate_of.is_empty() {
+            println!("  Duplicate of: {}", outcome.duplicate_of.join(", "));
+        }
+        if outcome.catalog_match.confidence != library::CatalogMatchConfidence::None {
+            println!(
+                "  Catalog match: {:?} (confidence: {:?})",
+                outcome.catalog_match.catalog_id, outcome.catalog_match.confidence
+            );
+        }
+    }
+    Ok(())
+}
+
+fn cmd_library_import_directory(
+    path: &Path,
+    recursive: bool,
+    max_depth: Option<u32>,
+    max_files: Option<usize>,
+    json: bool,
+) -> Result<(), BruteError> {
+    let mut store = load_library_store()?;
+    let catalog = try_load_catalog();
+    let mut options = library::scan::ScanOptions {
+        recursive,
+        ..library::scan::ScanOptions::default()
+    };
+    if let Some(d) = max_depth {
+        options.max_depth = d;
+    }
+    if let Some(f) = max_files {
+        options.max_files = f;
+    }
+
+    let outcome =
+        library::import::import_directory(path, &options, &mut store, catalog.as_ref(), || false)?;
+    save_library_store(&store)?;
+
+    if json {
+        println!("{}", to_json(&outcome)?);
+    } else {
+        let succeeded = outcome.imported.iter().filter(|(_, r)| r.is_ok()).count();
+        println!(
+            "Scanned {}: {} candidate(s) found, {} imported successfully.",
+            path.display(),
+            outcome.scan.discovered.len(),
+            succeeded
+        );
+        for (file_path, result) in &outcome.imported {
+            match result {
+                Ok(o) => println!("  OK   {} -> {}", file_path.display(), o.library_id),
+                Err(e) => println!("  FAIL {} -> {e}", file_path.display()),
+            }
+        }
+    }
+    Ok(())
+}
+
+fn cmd_library_list(json: bool) -> Result<(), BruteError> {
+    let store = load_library_store()?;
+    if json {
+        println!("{}", to_json(&store.entries)?);
+    } else if store.entries.is_empty() {
+        println!("No models in the library yet. Use `brute library import <path>`.");
+    } else {
+        println!("{} library entries:", store.entries.len());
+        for entry in &store.entries {
+            let quarantined = if entry.is_quarantined() {
+                " [QUARANTINED]"
+            } else {
+                ""
+            };
+            println!(
+                "  {}  {}{quarantined}",
+                entry.library_id,
+                entry.alias.as_deref().unwrap_or(&entry.metadata_summary())
+            );
+        }
+    }
+    Ok(())
+}
+
+fn cmd_library_show(library_id: &str, json: bool) -> Result<(), BruteError> {
+    let store = load_library_store()?;
+    let entry = store.require(library_id)?;
+
+    if json {
+        println!("{}", to_json(entry)?);
+    } else {
+        println!("Library entry: {}", entry.library_id);
+        if let Some(alias) = &entry.alias {
+            println!("  Alias: {alias}");
+        }
+        println!("  {}", entry.metadata_summary());
+        println!("  Path: {}", entry.current_path.display());
+        println!("  SHA-256: {}", entry.sha256);
+        println!("  Imported: {}", entry.imported_at_rfc3339);
+        println!(
+            "  File status: {:?}  Trust: {:?}",
+            entry.file_status, entry.trust
+        );
+        if entry.is_quarantined() {
+            let q = entry.quarantine.as_ref().unwrap();
+            println!(
+                "  QUARANTINED since {}: {}",
+                q.quarantined_at_rfc3339, q.reason
+            );
+        }
+        println!(
+            "  Catalog match: {:?} (confidence: {:?})",
+            entry.catalog_match.catalog_id, entry.catalog_match.confidence
+        );
+        let (license, commercial) =
+            describe_license_and_commercial_use(entry.catalog_match.catalog_id.as_deref());
+        println!("  {license}");
+        println!("  {commercial}");
+        if let Some(notes) = &entry.notes {
+            println!("  Notes: {notes}");
+        }
+
+        let profiles = library::associations::find_runtime_profiles_for(
+            &entry.sha256,
+            &tuning::runtime_profile::default_profiles_dir(),
+        );
+        println!("  Associated runtime profiles: {}", profiles.len());
+        let calibration_store = try_load_calibration();
+        let calibrations =
+            library::associations::find_calibration_matches_for(&calibration_store, entry);
+        println!("  Associated calibration records: {}", calibrations.len());
+    }
+    Ok(())
+}
+
+fn cmd_library_verify(library_id: Option<&str>, all: bool, json: bool) -> Result<(), BruteError> {
+    let mut store = load_library_store()?;
+
+    if !all && library_id.is_none() {
+        return Err(BruteError::Usage(
+            "brute library verify requires either a library-id or --all".to_string(),
+        ));
+    }
+
+    let ids: Vec<String> = if all {
+        store.entries.iter().map(|e| e.library_id.clone()).collect()
+    } else {
+        vec![library_id.unwrap().to_string()]
+    };
+
+    let mut results = Vec::new();
+    for id in &ids {
+        let confidence = store.require(id)?.catalog_match.confidence;
+        let entry = store
+            .find_by_id_mut(id)
+            .ok_or_else(|| errors::LibraryError::NotFound(id.clone()))?;
+        if entry.is_quarantined() {
+            results.push((id.clone(), None));
+            continue;
+        }
+        let result = library::verify::verify_entry(entry, confidence);
+        results.push((id.clone(), Some(result)));
+    }
+    save_library_store(&store)?;
+
+    if json {
+        println!("{}", to_json(&results)?);
+    } else {
+        for (id, result) in &results {
+            match result {
+                None => {
+                    println!("{id}: skipped (quarantined - run `brute library unquarantine` first)")
+                }
+                Some(r) => println!(
+                    "{id}: overall_integrity={:?} trust={:?}",
+                    r.overall_integrity, r.trust
+                ),
+            }
+        }
+    }
+    Ok(())
+}
+
+fn cmd_library_refresh(library_id: Option<&str>, all: bool, json: bool) -> Result<(), BruteError> {
+    let mut store = load_library_store()?;
+
+    if !all && library_id.is_none() {
+        return Err(BruteError::Usage(
+            "brute library refresh requires either a library-id or --all".to_string(),
+        ));
+    }
+
+    let ids: Vec<String> = if all {
+        store.entries.iter().map(|e| e.library_id.clone()).collect()
+    } else {
+        vec![library_id.unwrap().to_string()]
+    };
+
+    let mut results = Vec::new();
+    for id in &ids {
+        let entry = store
+            .find_by_id_mut(id)
+            .ok_or_else(|| errors::LibraryError::NotFound(id.clone()))?;
+        let status = library::verify::refresh_entry(entry);
+        results.push((id.clone(), status));
+    }
+    save_library_store(&store)?;
+
+    if json {
+        println!("{}", to_json(&results)?);
+    } else {
+        for (id, status) in &results {
+            println!("{id}: {status:?}");
+        }
+    }
+    Ok(())
+}
+
+fn cmd_library_audit(json: bool) -> Result<(), BruteError> {
+    let store = load_library_store()?;
+    let calibration_store = try_load_calibration();
+    let report = library::audit::audit(
+        &store,
+        &tuning::runtime_profile::default_profiles_dir(),
+        Some(&calibration_store),
+    );
+
+    if json {
+        println!("{}", to_json(&report)?);
+    } else {
+        println!("Library audit:");
+        println!("  Healthy: {}", report.healthy.len());
+        println!("  Missing: {}", report.missing.len());
+        println!("  Modified: {}", report.modified.len());
+        println!("  Corrupt: {}", report.corrupt.len());
+        println!("  Unknown provenance: {}", report.unknown_provenance.len());
+        println!("  Unsupported: {}", report.unsupported.len());
+        println!("  Duplicate groups: {}", report.duplicate_groups.len());
+        println!("  Stale runtime profiles: {}", report.stale_profiles.len());
+        println!("  Stale calibrations: {}", report.stale_calibrations.len());
+        println!("  Privacy concerns: {}", report.privacy_concerns.len());
+        println!(
+            "  Entries needing schema migration: {}",
+            report.schema_migration_needed.len()
+        );
+        if !report.recommendations.is_empty() {
+            println!("\nRecommendations:");
+            for r in &report.recommendations {
+                println!("  - {r}");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn cmd_library_duplicates(json: bool) -> Result<(), BruteError> {
+    let store = load_library_store()?;
+    let groups = library::duplicates::find_duplicate_groups(&store);
+
+    if json {
+        println!("{}", to_json(&groups)?);
+    } else if groups.is_empty() {
+        println!("No duplicate artifacts found.");
+    } else {
+        for group in &groups {
+            println!(
+                "sha256 {} ({} cop{}):",
+                group.sha256,
+                group.members.len(),
+                if group.members.len() == 1 { "y" } else { "ies" }
+            );
+            for member in &group.members {
+                let marker = if member.library_id == group.canonical_library_id {
+                    " (canonical)"
+                } else {
+                    ""
+                };
+                println!("  {} {}{marker}", member.library_id, member.path.display());
+            }
+            println!("  {}", group.suggested_action);
+        }
+    }
+    Ok(())
+}
+
+fn cmd_library_storage(json: bool) -> Result<(), BruteError> {
+    let store = load_library_store()?;
+    let summary = library::storage::summarize(&store);
+
+    if json {
+        println!("{}", to_json(&summary)?);
+    } else {
+        println!("Total entries: {}", summary.total_entries);
+        println!("Total bytes: {}", summary.total_bytes);
+        println!("Available bytes: {}", summary.available_bytes);
+        println!(
+            "Potentially reclaimable duplicate bytes: {}",
+            summary.duplicate_bytes
+        );
+        println!(
+            "Missing: {}  Corrupt: {}",
+            summary.missing_count, summary.corrupt_count
+        );
+        println!("\nLargest models:");
+        for entry in &summary.largest {
+            println!(
+                "  {} bytes - {} ({})",
+                entry.size_bytes,
+                entry.path.display(),
+                entry.library_id
+            );
+        }
+        println!("\nBy architecture:");
+        for (arch, bytes) in &summary.bytes_by_architecture {
+            println!("  {arch}: {bytes} bytes");
+        }
+        println!("\nBy quantization:");
+        for (quant, bytes) in &summary.bytes_by_quantization {
+            println!("  {quant}: {bytes} bytes");
+        }
+        if summary.duplicate_bytes > 0 {
+            println!(
+                "\nNote: duplicate bytes are a potential reclaim estimate only - confirm no \
+                 external workflow depends on a copy before running `brute library forget`."
+            );
+        }
+    }
+    Ok(())
+}
+
+fn cmd_library_locate(library_id: &str, new_path: &Path, json: bool) -> Result<(), BruteError> {
+    let mut store = load_library_store()?;
+    let outcome = library::verify::locate(&mut store, library_id, new_path)?;
+    save_library_store(&store)?;
+
+    if json {
+        println!("{}", to_json(&outcome)?);
+    } else {
+        println!("Located: {library_id} -> {}", new_path.display());
+        println!(
+            "Verification: overall_integrity={:?} trust={:?}",
+            outcome.verification.overall_integrity, outcome.verification.trust
+        );
+        println!(
+            "Runtime profiles/calibration records remain valid - they're keyed to content hash, not path."
+        );
+    }
+    Ok(())
+}
+
+fn cmd_library_alias(library_id: &str, name: String) -> Result<(), BruteError> {
+    let mut store = load_library_store()?;
+    let entry = store
+        .find_by_id_mut(library_id)
+        .ok_or_else(|| errors::LibraryError::NotFound(library_id.to_string()))?;
+    entry.alias = Some(name);
+    save_library_store(&store)?;
+    println!("Alias updated for {library_id}.");
+    Ok(())
+}
+
+fn cmd_library_note(library_id: &str, text: String) -> Result<(), BruteError> {
+    let mut store = load_library_store()?;
+    let entry = store
+        .find_by_id_mut(library_id)
+        .ok_or_else(|| errors::LibraryError::NotFound(library_id.to_string()))?;
+    entry.notes = Some(text);
+    save_library_store(&store)?;
+    println!("Note updated for {library_id}.");
+    Ok(())
+}
+
+fn cmd_library_forget(library_id: &str) -> Result<(), BruteError> {
+    let mut store = load_library_store()?;
+    store.forget(library_id)?;
+    save_library_store(&store)?;
+    println!("Forgot library entry {library_id}. The underlying file was NOT touched.");
+    Ok(())
+}
+
+fn cmd_library_remove_managed(library_id: &str, confirm: bool) -> Result<(), BruteError> {
+    if !confirm {
+        return Err(BruteError::Usage(
+            "brute library remove-managed requires --confirm".to_string(),
+        ));
+    }
+    let mut store = load_library_store()?;
+    store.remove_managed(library_id)?;
+    save_library_store(&store)?;
+    println!("Removed managed copy for {library_id}.");
+    Ok(())
+}
+
+fn cmd_library_quarantine(library_id: &str, reason: String) -> Result<(), BruteError> {
+    let mut store = load_library_store()?;
+    store.quarantine(library_id, reason)?;
+    save_library_store(&store)?;
+    println!("Quarantined {library_id}. It will not be benchmarked or launched until cleared.");
+    Ok(())
+}
+
+fn cmd_library_unquarantine(library_id: &str) -> Result<(), BruteError> {
+    let mut store = load_library_store()?;
+    let result = store.unquarantine(library_id);
+    save_library_store(&store)?;
+    match result {
+        Ok(verification) => {
+            println!("Quarantine lifted for {library_id} after a passing re-verification.");
+            println!(
+                "overall_integrity={:?} trust={:?}",
+                verification.overall_integrity, verification.trust
+            );
+            Ok(())
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn cmd_library_quarantined(json: bool) -> Result<(), BruteError> {
+    let store = load_library_store()?;
+    let quarantined: Vec<&library::LibraryEntry> = store
+        .entries
+        .iter()
+        .filter(|e| e.is_quarantined())
+        .collect();
+
+    if json {
+        println!("{}", to_json(&quarantined)?);
+    } else if quarantined.is_empty() {
+        println!("No quarantined entries.");
+    } else {
+        for entry in &quarantined {
+            let q = entry.quarantine.as_ref().unwrap();
+            println!(
+                "{}: {} (since {})",
+                entry.library_id, q.reason, q.quarantined_at_rfc3339
+            );
+        }
+    }
+    Ok(())
+}
+
+fn cmd_library_export(output: &Path) -> Result<(), BruteError> {
+    let store = load_library_store()?;
+    let sanitized_entries: Vec<library::LibraryEntry> = store
+        .entries
+        .iter()
+        .map(library::sanitize_entry_for_export)
+        .collect();
+    let text = to_json(&sanitized_entries)?;
+    std::fs::write(output, &text).map_err(|source| BruteError::Io {
+        context: format!("writing exported library to {}", output.display()),
+        source,
+    })?;
+    println!(
+        "Library exported to {} ({} entries, paths and machine identifiers redacted).",
+        output.display(),
+        sanitized_entries.len()
     );
     Ok(())
 }
