@@ -333,6 +333,13 @@ pub fn load_profile_from(dir: &Path, profile_id: &str) -> io::Result<RuntimeProf
     serde_json::from_str(&contents).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 
+/// Deletes only the local profile metadata file - never touches the
+/// model or any runtime binary. Mirrors `library::forget`'s "metadata
+/// only, never a file the user brought in" boundary.
+pub fn delete_profile_from(dir: &Path, profile_id: &str) -> io::Result<()> {
+    fs::remove_file(profile_path(dir, profile_id))
+}
+
 /// Lists saved profile IDs, sorted for deterministic output. An empty
 /// (or not-yet-created) directory is not an error - it just means no
 /// profiles have been saved yet.

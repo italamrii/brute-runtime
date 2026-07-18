@@ -136,6 +136,108 @@ fn drain(mut reader: impl Read) -> Vec<u8> {
     buf
 }
 
+/// Like [`run`], but calls `on_stdout_chunk` with each block of stdout
+/// bytes as they arrive, instead of only returning the full buffer after
+/// the process exits. Used by the desktop local-run workspace for real
+/// token streaming (see `docs/local-run-workspace.md`) - a dedicated
+/// function rather than changing `run`'s signature, so every existing
+/// Stage 0-3 call site is untouched. stderr is still drained into the
+/// final `ProcessRun.stderr` only, unchanged.
+pub fn run_streaming(
+    binary: &Path,
+    args: &[String],
+    timeout: Duration,
+    mut on_tick: impl FnMut(&Child) -> TickAction,
+    on_stdout_chunk: impl FnMut(&[u8]) + Send + 'static,
+) -> Result<ProcessRun, ProcessError> {
+    if !binary.is_file() {
+        return Err(ProcessError::BinaryNotFound(binary.to_path_buf()));
+    }
+
+    let mut child = Command::new(binary)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|source| ProcessError::SpawnFailed {
+            program: binary.to_path_buf(),
+            source,
+        })?;
+
+    let stdout_handle = child.stdout.take().expect("stdout was piped");
+    let stderr_handle = child.stderr.take().expect("stderr was piped");
+    let stdout_thread = thread::spawn(move || drain_streaming(stdout_handle, on_stdout_chunk));
+    let stderr_thread = thread::spawn(move || drain(stderr_handle));
+
+    let start = Instant::now();
+    let mut timed_out = false;
+    let mut cancelled = false;
+
+    let exit_status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) => {
+                if start.elapsed() >= timeout {
+                    timed_out = true;
+                    child.kill().map_err(ProcessError::KillFailed)?;
+                    let _ = child.wait();
+                    break None;
+                }
+                if on_tick(&child) == TickAction::Cancel {
+                    cancelled = true;
+                    child.kill().map_err(ProcessError::KillFailed)?;
+                    let _ = child.wait();
+                    break None;
+                }
+                thread::sleep(POLL_INTERVAL);
+            }
+            Err(source) => {
+                return Err(ProcessError::SpawnFailed {
+                    program: binary.to_path_buf(),
+                    source,
+                });
+            }
+        }
+    };
+
+    let wall_time = start.elapsed();
+    let peak_working_set_bytes = query_peak_working_set(&child);
+
+    let stdout_bytes = stdout_thread.join().unwrap_or_default();
+    let stderr_bytes = stderr_thread.join().unwrap_or_default();
+
+    Ok(ProcessRun {
+        stdout: String::from_utf8_lossy(&stdout_bytes).into_owned(),
+        stderr: String::from_utf8_lossy(&stderr_bytes).into_owned(),
+        exit_code: exit_status.and_then(|s| s.code()),
+        timed_out,
+        cancelled,
+        wall_time,
+        peak_working_set_bytes,
+    })
+}
+
+/// Reads in fixed-size chunks (never line-buffered - llama-cli emits
+/// tokens without reliable line breaks), invoking `on_chunk` for each
+/// non-empty read and also accumulating everything into the returned
+/// buffer so the final `ProcessRun.stdout` is complete either way.
+fn drain_streaming(mut reader: impl Read, mut on_chunk: impl FnMut(&[u8])) -> Vec<u8> {
+    let mut all = Vec::new();
+    let mut buf = [0u8; 4096];
+    loop {
+        match reader.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                on_chunk(&buf[..n]);
+                all.extend_from_slice(&buf[..n]);
+            }
+            Err(_) => break,
+        }
+    }
+    all
+}
+
 fn query_peak_working_set(child: &Child) -> Option<u64> {
     use std::os::windows::io::AsRawHandle;
     use windows::Win32::Foundation::HANDLE;
@@ -217,6 +319,47 @@ mod tests {
         assert!(result.cancelled);
         assert!(!result.timed_out);
         assert!(!result.succeeded());
+        assert!(result.wall_time < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn run_streaming_delivers_chunks_as_they_arrive_and_the_full_buffer_matches() {
+        use std::sync::{Arc, Mutex};
+
+        let received = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let received_clone = received.clone();
+
+        let result = run_streaming(
+            &cmd_exe(),
+            &["/C".to_string(), "echo streamed-hello".to_string()],
+            Duration::from_secs(10),
+            |_| TickAction::Continue,
+            move |chunk| received_clone.lock().unwrap().extend_from_slice(chunk),
+        )
+        .expect("cmd.exe should run");
+
+        assert_eq!(result.exit_code, Some(0));
+        let streamed = String::from_utf8_lossy(&received.lock().unwrap()).into_owned();
+        assert!(streamed.contains("streamed-hello"));
+        // The chunk callback must have seen exactly what the final
+        // buffer contains - streaming is a delivery mechanism, not a
+        // separate, possibly-inconsistent copy of the output.
+        assert_eq!(streamed, result.stdout);
+    }
+
+    #[test]
+    fn run_streaming_cancel_action_still_kills_the_process() {
+        let result = run_streaming(
+            &cmd_exe(),
+            &["/C".to_string(), "ping -n 30 127.0.0.1 >NUL".to_string()],
+            Duration::from_secs(30),
+            |_| TickAction::Cancel,
+            |_| {},
+        )
+        .expect("cmd.exe should run");
+
+        assert!(result.cancelled);
+        assert!(!result.timed_out);
         assert!(result.wall_time < Duration::from_secs(5));
     }
 

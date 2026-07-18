@@ -288,6 +288,45 @@ pub fn run_cli_once(
     Ok((metrics, run))
 }
 
+/// Like [`run_cli_once`], but delivers stdout to `on_stdout_chunk` as it
+/// is produced instead of only after the process exits - the primitive
+/// behind the desktop local-run workspace's live token streaming (see
+/// `docs/local-run-workspace.md`). `--simple-io`/`-no-display-prompt`
+/// (already set by `build_cli_args`) keep stdout to just the generated
+/// completion text; llama-cli's own timing lines go to stderr, parsed
+/// into `CliPerfMetrics` exactly as `run_cli_once` does.
+pub fn run_cli_streaming(
+    binary_dir: &Path,
+    model: &Path,
+    config: &RuntimeConfig,
+    prompt: &str,
+    allow_unverified: bool,
+    on_tick: impl FnMut(&std::process::Child) -> super::process::TickAction,
+    on_stdout_chunk: impl FnMut(&[u8]) + Send + 'static,
+) -> Result<(CliPerfMetrics, super::process::ProcessRun), ProcessError> {
+    let bin = llama_cli_path(binary_dir);
+    verify_llama_binary(&bin, allow_unverified)?;
+
+    let args = build_cli_args(config, model, prompt);
+    let run =
+        super::process::run_streaming(&bin, &args, config.timeout(), on_tick, on_stdout_chunk)?;
+
+    if run.timed_out {
+        return Err(ProcessError::TimedOut {
+            timeout_secs: config.timeout_secs,
+        });
+    }
+    if !run.succeeded() {
+        return Err(ProcessError::NonZeroExit {
+            code: run.exit_code,
+            stderr_tail: tail(&run.stderr, 2000),
+        });
+    }
+
+    let metrics = parse_cli_perf(&run.stderr);
+    Ok((metrics, run))
+}
+
 /// Runs `llama-cli --version` with no model - a pure process-launch and
 /// binary-verification smoke test.
 ///

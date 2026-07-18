@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window - the full BRUTE Runtime desktop UI. No shell, no arbitrary process, no unrestricted filesystem access - every filesystem operation goes through a validated custom command in src-tauri/src/commands.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "dialog:allow-open",
+    "dialog:allow-save"
+  ]
+}

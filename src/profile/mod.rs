@@ -101,6 +101,30 @@ pub fn build_profile(
     }
 }
 
+/// Builds a profile the same way [`build_profile`] does, but fills in a
+/// real `calibration_record_count` by counting `calibration_store`'s
+/// records for *this* machine - not just however many happen to be in
+/// the store file. Shared by the `brute` CLI and the desktop backend so
+/// this "which calibration records actually apply here" logic exists
+/// exactly once. `machine_id` is derived from `hardware` alone, so it's
+/// safe to build a throwaway preliminary profile first just to learn it.
+pub fn build_profile_for_machine(
+    hardware: &HardwareReport,
+    captured_at_rfc3339: String,
+    calibration_store: &crate::calibration::CalibrationStore,
+) -> HardwareCapabilityProfile {
+    let preliminary = build_profile(hardware, captured_at_rfc3339, 0);
+    let this_machine_count = calibration_store
+        .records
+        .iter()
+        .filter(|r| r.machine_id == preliminary.machine_id)
+        .count();
+    HardwareCapabilityProfile {
+        calibration_record_count: this_machine_count,
+        ..preliminary
+    }
+}
+
 /// Placeholder written in place of `machine_id` in any shareable export
 /// (JSON/file output, never the local terminal display). `machine_id` is
 /// coarse and collision-prone by design (see `compute_machine_id`), but

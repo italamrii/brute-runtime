@@ -1,0 +1,340 @@
+//! Trusted local model library commands. Every path argument coming
+//! from the frontend (typically via a native file/folder dialog) is
+//! re-validated by the underlying `brute::library`/`brute::security`
+//! functions exactly as the CLI does - never trusted just because it
+//! arrived over IPC. See docs/tauri-security-boundary.md.
+
+use crate::paths;
+use brute::library::audit::AuditReport;
+use brute::library::duplicates::DuplicateGroup;
+use brute::library::import::{ImportDirectoryOutcome, ImportOutcome};
+use brute::library::scan::{ScanOptions, ScanResult};
+use brute::library::storage::StorageSummary;
+use brute::library::verify::LocateOutcome;
+use brute::library::{self, GgufVerification, LibraryEntry, LibraryStore};
+use brute::tuning::runtime_profile::RuntimeProfile;
+use serde::Serialize;
+use std::path::Path;
+use std::time::Duration;
+use tauri::AppHandle;
+
+fn load_store() -> Result<LibraryStore, String> {
+    LibraryStore::load_from(&library::default_index_path()).map_err(|e| e.to_string())
+}
+
+fn save_store(store: &LibraryStore) -> Result<(), String> {
+    store
+        .save_to(&library::default_index_path())
+        .map_err(|e| e.to_string())
+}
+
+fn try_load_catalog(app: &AppHandle) -> Option<brute::catalog::Catalog> {
+    brute::catalog::load_catalog(&paths::catalog_path(app)).ok()
+}
+
+fn try_load_calibration(app: &AppHandle) -> brute::calibration::CalibrationStore {
+    brute::calibration::CalibrationStore::load(&paths::calibration_path(app)).unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn library_list() -> Result<Vec<LibraryEntry>, String> {
+    Ok(load_store()?.entries)
+}
+
+#[tauri::command]
+pub fn library_show(library_id: String) -> Result<LibraryEntry, String> {
+    let store = load_store()?;
+    store
+        .require(&library_id)
+        .cloned()
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Serialize)]
+pub struct AssociationsDto {
+    pub runtime_profiles: Vec<RuntimeProfile>,
+    pub calibration_record_count: usize,
+}
+
+#[tauri::command]
+pub fn library_associations(app: AppHandle, library_id: String) -> Result<AssociationsDto, String> {
+    let store = load_store()?;
+    let entry = store.require(&library_id).map_err(|e| e.to_string())?;
+
+    let profiles_dir = brute::tuning::runtime_profile::default_profiles_dir();
+    let runtime_profiles =
+        brute::library::associations::find_runtime_profiles_for(&entry.sha256, &profiles_dir);
+
+    let calibration_store = try_load_calibration(&app);
+    let calibration_record_count =
+        brute::library::associations::find_calibration_matches_for(&calibration_store, entry).len();
+
+    Ok(AssociationsDto {
+        runtime_profiles,
+        calibration_record_count,
+    })
+}
+
+#[tauri::command]
+pub fn library_import(
+    app: AppHandle,
+    path: String,
+    alias: Option<String>,
+) -> Result<ImportOutcome, String> {
+    let mut store = load_store()?;
+    let catalog = try_load_catalog(&app);
+    let outcome =
+        library::import::import_model(Path::new(&path), alias, &mut store, catalog.as_ref())
+            .map_err(|e| e.to_string())?;
+    save_store(&store)?;
+    Ok(outcome)
+}
+
+#[derive(serde::Deserialize)]
+pub struct ScanOptionsDto {
+    pub recursive: bool,
+    pub max_depth: Option<u32>,
+    pub max_files: Option<usize>,
+    pub max_total_bytes: Option<u64>,
+    pub max_duration_secs: Option<u64>,
+}
+
+fn build_scan_options(dto: &ScanOptionsDto) -> ScanOptions {
+    let mut options = ScanOptions {
+        recursive: dto.recursive,
+        ..ScanOptions::default()
+    };
+    if let Some(d) = dto.max_depth {
+        options.max_depth = d;
+    }
+    if let Some(f) = dto.max_files {
+        options.max_files = f;
+    }
+    if let Some(b) = dto.max_total_bytes {
+        options.max_total_bytes = b;
+    }
+    if let Some(s) = dto.max_duration_secs {
+        options.max_duration = Duration::from_secs(s);
+    }
+    options
+}
+
+/// Dry discovery only - never imports anything. Matches
+/// `brute library scan`'s default behavior exactly.
+#[tauri::command]
+pub fn library_scan(root: String, options: ScanOptionsDto) -> Result<ScanResult, String> {
+    let scan_options = build_scan_options(&options);
+    library::scan::scan(Path::new(&root), &scan_options, || false).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn library_import_directory(
+    app: AppHandle,
+    root: String,
+    options: ScanOptionsDto,
+) -> Result<ImportDirectoryOutcome, String> {
+    let mut store = load_store()?;
+    let catalog = try_load_catalog(&app);
+    let scan_options = build_scan_options(&options);
+    let outcome = library::import::import_directory(
+        Path::new(&root),
+        &scan_options,
+        &mut store,
+        catalog.as_ref(),
+        || false,
+    )
+    .map_err(|e| e.to_string())?;
+    save_store(&store)?;
+    Ok(outcome)
+}
+
+#[derive(Serialize)]
+pub struct VerifyOutcomeDto {
+    pub library_id: String,
+    pub verification: Option<GgufVerification>,
+    pub skipped_reason: Option<String>,
+}
+
+#[tauri::command]
+pub fn library_verify(
+    library_id: Option<String>,
+    all: bool,
+) -> Result<Vec<VerifyOutcomeDto>, String> {
+    if !all && library_id.is_none() {
+        return Err("either a library_id or all=true is required".to_string());
+    }
+    let mut store = load_store()?;
+    let ids: Vec<String> = if all {
+        store.entries.iter().map(|e| e.library_id.clone()).collect()
+    } else {
+        vec![library_id.unwrap()]
+    };
+
+    let mut results = Vec::new();
+    for id in &ids {
+        let confidence = store
+            .require(id)
+            .map_err(|e| e.to_string())?
+            .catalog_match
+            .confidence;
+        let entry = store
+            .find_by_id_mut(id)
+            .ok_or_else(|| format!("no library entry with id {id:?}"))?;
+        if entry.is_quarantined() {
+            results.push(VerifyOutcomeDto {
+                library_id: id.clone(),
+                verification: None,
+                skipped_reason: Some("quarantined - unquarantine first".to_string()),
+            });
+            continue;
+        }
+        let result = library::verify::verify_entry(entry, confidence);
+        results.push(VerifyOutcomeDto {
+            library_id: id.clone(),
+            verification: Some(result),
+            skipped_reason: None,
+        });
+    }
+    save_store(&store)?;
+    Ok(results)
+}
+
+#[derive(Serialize)]
+pub struct RefreshOutcomeDto {
+    pub library_id: String,
+    pub file_status: brute::library::FileStatus,
+}
+
+#[tauri::command]
+pub fn library_refresh(
+    library_id: Option<String>,
+    all: bool,
+) -> Result<Vec<RefreshOutcomeDto>, String> {
+    if !all && library_id.is_none() {
+        return Err("either a library_id or all=true is required".to_string());
+    }
+    let mut store = load_store()?;
+    let ids: Vec<String> = if all {
+        store.entries.iter().map(|e| e.library_id.clone()).collect()
+    } else {
+        vec![library_id.unwrap()]
+    };
+
+    let mut results = Vec::new();
+    for id in &ids {
+        let entry = store
+            .find_by_id_mut(id)
+            .ok_or_else(|| format!("no library entry with id {id:?}"))?;
+        let status = library::verify::refresh_entry(entry);
+        results.push(RefreshOutcomeDto {
+            library_id: id.clone(),
+            file_status: status,
+        });
+    }
+    save_store(&store)?;
+    Ok(results)
+}
+
+#[tauri::command]
+pub fn library_audit(app: AppHandle) -> Result<AuditReport, String> {
+    let store = load_store()?;
+    let calibration_store = try_load_calibration(&app);
+    let profiles_dir = brute::tuning::runtime_profile::default_profiles_dir();
+    Ok(library::audit::audit(
+        &store,
+        &profiles_dir,
+        Some(&calibration_store),
+    ))
+}
+
+#[tauri::command]
+pub fn library_duplicates() -> Result<Vec<DuplicateGroup>, String> {
+    Ok(library::duplicates::find_duplicate_groups(&load_store()?))
+}
+
+#[tauri::command]
+pub fn library_storage() -> Result<StorageSummary, String> {
+    Ok(library::storage::summarize(&load_store()?))
+}
+
+#[tauri::command]
+pub fn library_locate(library_id: String, new_path: String) -> Result<LocateOutcome, String> {
+    let mut store = load_store()?;
+    let outcome = library::verify::locate(&mut store, &library_id, Path::new(&new_path))
+        .map_err(|e| e.to_string())?;
+    save_store(&store)?;
+    Ok(outcome)
+}
+
+#[tauri::command]
+pub fn library_alias(library_id: String, name: String) -> Result<(), String> {
+    let mut store = load_store()?;
+    let entry = store
+        .find_by_id_mut(&library_id)
+        .ok_or_else(|| format!("no library entry with id {library_id:?}"))?;
+    entry.alias = Some(name);
+    save_store(&store)
+}
+
+#[tauri::command]
+pub fn library_note(library_id: String, text: String) -> Result<(), String> {
+    let mut store = load_store()?;
+    let entry = store
+        .find_by_id_mut(&library_id)
+        .ok_or_else(|| format!("no library entry with id {library_id:?}"))?;
+    entry.notes = Some(text);
+    save_store(&store)
+}
+
+/// Removes tracking metadata only - the underlying model file is never
+/// touched. See docs/quarantine-and-recovery.md.
+#[tauri::command]
+pub fn library_forget(library_id: String) -> Result<(), String> {
+    let mut store = load_store()?;
+    store.forget(&library_id).map_err(|e| e.to_string())?;
+    save_store(&store)
+}
+
+#[tauri::command]
+pub fn library_quarantine(library_id: String, reason: String) -> Result<(), String> {
+    let mut store = load_store()?;
+    store
+        .quarantine(&library_id, reason)
+        .map_err(|e| e.to_string())?;
+    save_store(&store)
+}
+
+/// Always re-runs a full verification pass before clearing quarantine -
+/// never a bare flag flip. See docs/quarantine-and-recovery.md.
+#[tauri::command]
+pub fn library_unquarantine(library_id: String) -> Result<GgufVerification, String> {
+    let mut store = load_store()?;
+    let result = store.unquarantine(&library_id).map_err(|e| e.to_string());
+    save_store(&store)?;
+    result
+}
+
+#[tauri::command]
+pub fn library_quarantined() -> Result<Vec<LibraryEntry>, String> {
+    Ok(load_store()?
+        .entries
+        .into_iter()
+        .filter(|e| e.is_quarantined())
+        .collect())
+}
+
+/// Writes the full library index to `output_path`, sanitized
+/// (`library::sanitize_entry_for_export`) - no local paths, no machine
+/// identifiers. Returns the number of entries written.
+#[tauri::command]
+pub fn library_export(output_path: String) -> Result<usize, String> {
+    let store = load_store()?;
+    let sanitized: Vec<LibraryEntry> = store
+        .entries
+        .iter()
+        .map(library::sanitize_entry_for_export)
+        .collect();
+    let json = serde_json::to_string_pretty(&sanitized).map_err(|e| e.to_string())?;
+    std::fs::write(&output_path, json).map_err(|e| e.to_string())?;
+    Ok(sanitized.len())
+}

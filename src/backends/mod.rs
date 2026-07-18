@@ -187,6 +187,47 @@ pub fn verify_backend(
     result
 }
 
+/// Decides which single GPU backend (if any) tuning is allowed to
+/// generate GPU-offload candidates for - `None` unless a real
+/// end-to-end verification (not mere driver detection) passed. When the
+/// caller pins `Backend::Cpu`, no GPU backend is even attempted; when
+/// they pin a specific GPU backend, only that one is checked; otherwise
+/// both CUDA and Vulkan are opportunistically verified and the first
+/// verified one wins. Shared by `brute tune run` and the desktop
+/// auto-tune workflow so this selection policy exists exactly once.
+pub fn determine_verified_gpu_backend(
+    model: &Path,
+    llama_bin: &Path,
+    profile: &HardwareCapabilityProfile,
+    requested_backend: Option<Backend>,
+    allow_unverified_binary: bool,
+    timeout: Duration,
+) -> (Option<Backend>, Vec<BackendVerification>) {
+    let to_check: Vec<Backend> = match requested_backend {
+        Some(Backend::Cpu) => vec![],
+        Some(b) => vec![b],
+        None => vec![Backend::Cuda, Backend::Vulkan],
+    };
+
+    let mut verifications = Vec::new();
+    let mut verified_gpu = None;
+    for b in to_check {
+        let v = verify_backend(
+            b,
+            Some(llama_bin),
+            model,
+            profile,
+            allow_unverified_binary,
+            timeout,
+        );
+        if v.status == BackendStatus::Verified && verified_gpu.is_none() {
+            verified_gpu = Some(b);
+        }
+        verifications.push(v);
+    }
+    (verified_gpu, verifications)
+}
+
 /// The core anti-fabrication check: a GPU backend's verification run must
 /// show real evidence the GPU path was used.
 ///

@@ -1,0 +1,40 @@
+[package]
+name = "brute-desktop"
+version = "0.1.0"
+description = "BRUTE Runtime - local-first Windows AI workspace desktop shell"
+authors = ["BRUTE Runtime"]
+edition = "2024"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "brute_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# The core engine - single source of truth. The desktop backend never
+# duplicates hardware/model/tuning/library logic, only exposes it
+# through a validated Tauri command boundary. See
+# docs/desktop-architecture.md.
+brute = { path = "../.." }
+tauri = { version = "2", features = [] }
+# Sanctioned Tauri v2 mechanism for opening an external link (e.g. a
+# catalog entry's official source URL) - only ever invoked from an
+# explicit user click, never automatically. See docs/tauri-security-boundary.md.
+tauri-plugin-opener = "2"
+# Native open-file/open-folder/save-file dialogs only - the frontend
+# never gets broader filesystem access than that. Every path the dialog
+# returns is re-validated by the Rust command it's passed to (the same
+# `security::validate_regular_file` Stage 0 already established), never
+# trusted just because it came from a dialog. See docs/tauri-security-boundary.md.
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4.45", features = ["serde"] }
+

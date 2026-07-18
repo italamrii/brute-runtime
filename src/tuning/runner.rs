@@ -24,6 +24,7 @@
 use super::candidates::{Candidate, TuningPlan};
 use super::stability::{self, RepetitionOutcome, StabilityAssessment};
 use serde::Serialize;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 pub const DEFAULT_REPETITIONS_PER_CANDIDATE: u32 = 3;
@@ -32,6 +33,14 @@ pub const DEFAULT_TOTAL_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 pub const DEFAULT_MIN_AVAILABLE_RAM_BYTES: u64 = 256_000_000;
 pub const DEFAULT_MIN_FREE_DISK_BYTES: u64 = 500_000_000;
 pub const DEFAULT_COOLDOWN_BETWEEN_HEAVY_RUNS: Duration = Duration::from_millis(750);
+
+/// Fixed, deliberately small prompt/generation lengths for tuning
+/// repetitions (spec section 6 - tuning measures *relative* candidate
+/// performance quickly, it is not itself a full benchmark run).
+pub const TUNE_PROMPT_TOKENS: u32 = 64;
+pub const TUNE_GEN_TOKENS: u32 = 32;
+pub const TUNE_PER_RUN_TIMEOUT_SECS: u64 = 60;
+pub const TUNE_BACKEND_VERIFY_TIMEOUT_SECS: u64 = 60;
 
 /// A candidate counts as "heavy" - and triggers a cooldown before it (and
 /// before whatever follows it) - when it offloads any layers to a GPU or
@@ -83,6 +92,68 @@ impl RepetitionSample {
             generation_tokens_per_second: self.generation_tokens_per_second,
             prompt_tokens_per_second: self.prompt_tokens_per_second,
         }
+    }
+}
+
+/// The single `run_repetition` implementation used for real tuning runs -
+/// shared by the `brute tune run` CLI command and the desktop auto-tune
+/// command so this glue (fixed prompt/gen token counts, mapping a
+/// `llama-bench` result or `ProcessError` onto a [`RepetitionSample`])
+/// exists exactly once. Callers only supply `on_tick` so cooperative
+/// cancellation can be wired to whatever mechanism they use (a
+/// cross-process flag file for the CLI, an in-process `AtomicBool` for
+/// the desktop app).
+pub fn run_candidate_repetition(
+    llama_bin: &Path,
+    model_path: &Path,
+    candidate: &Candidate,
+    allow_unverified_binary: bool,
+    on_tick: impl FnMut(&std::process::Child) -> crate::runtime::process::TickAction,
+) -> RepetitionSample {
+    let config = crate::runtime::RuntimeConfig {
+        backend: candidate.backend,
+        binary_dir: llama_bin.to_path_buf(),
+        threads: candidate.threads,
+        gpu_layers: candidate.gpu_layers,
+        context_size: candidate.context_size,
+        batch_size: candidate.batch_size,
+        prompt_tokens: TUNE_PROMPT_TOKENS,
+        gen_tokens: TUNE_GEN_TOKENS,
+        repetitions: 1,
+        timeout_secs: TUNE_PER_RUN_TIMEOUT_SECS,
+    };
+
+    match crate::runtime::llama_cpp::run_bench(
+        llama_bin,
+        model_path,
+        &config,
+        allow_unverified_binary,
+        on_tick,
+    ) {
+        Ok((rows, run)) => RepetitionSample {
+            succeeded: run.succeeded(),
+            timed_out: run.timed_out,
+            cancelled: run.cancelled,
+            crashed: !run.succeeded() && !run.timed_out && !run.cancelled,
+            generation_tokens_per_second: rows.iter().find(|r| r.test == "tg").map(|r| r.avg_ts),
+            prompt_tokens_per_second: rows.iter().find(|r| r.test == "pp").map(|r| r.avg_ts),
+        },
+        Err(crate::errors::ProcessError::TimedOut { .. }) => RepetitionSample {
+            succeeded: false,
+            timed_out: true,
+            cancelled: false,
+            crashed: false,
+            generation_tokens_per_second: None,
+            prompt_tokens_per_second: None,
+        },
+        Err(_) => RepetitionSample {
+            succeeded: false,
+            timed_out: false,
+            cancelled: false,
+            crashed: true,
+            generation_tokens_per_second: None,
+            prompt_tokens_per_second: None,
+        },
     }
 }
 

@@ -1,39 +1,19 @@
-mod backends;
-mod benchmark;
-mod calibration;
-mod catalog;
-mod cli;
-mod errors;
-mod estimator;
-mod fit;
-mod hardware;
-mod identity;
-mod library;
-mod models;
-mod profile;
-mod provenance;
-mod recommend;
-mod report;
-mod runtime;
-mod security;
-#[cfg(test)]
-mod stage1_fixtures_test;
-#[cfg(test)]
-mod stage3_performance_test;
-mod tuning;
-
-use benchmark::BenchmarkReport;
-use catalog::TaskCategory;
-use chrono::Utc;
-use clap::Parser;
-use cli::{
+use brute::benchmark::BenchmarkReport;
+use brute::catalog::TaskCategory;
+use brute::cli::{
     BackendsCommands, BenchmarkArgs, CalibrationsCommands, CatalogArgs, CatalogCommands, Cli,
     Commands, LibraryCommands, ModelCommands, ProfileCommands, ProfilesCommands, TuneCommands,
 };
-use errors::BruteError;
-use recommend::Priority;
-use report::CapabilityReport;
-use runtime::{Backend, RuntimeConfig};
+use brute::errors::BruteError;
+use brute::recommend::Priority;
+use brute::report::CapabilityReport;
+use brute::runtime::{Backend, RuntimeConfig};
+use brute::{
+    backends, benchmark, calibration, catalog, cli, errors, hardware, identity, library, models,
+    profile, recommend, report, runtime, security, tuning,
+};
+use chrono::Utc;
+use clap::Parser;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
@@ -553,20 +533,11 @@ fn build_profile_for_cli(
 ) -> Result<profile::HardwareCapabilityProfile, BruteError> {
     let hw = hardware::inspect(storage_path);
     let calib_store = calibration::CalibrationStore::load(calibration_path)?;
-    // machine_id is derived from `hw` alone, so it's safe to build a
-    // throwaway profile first just to learn it, then filter the
-    // calibration count down to records that actually apply to *this*
-    // machine (not just however many happen to be in the store file).
-    let preliminary = profile::build_profile(&hw, now_rfc3339(), 0);
-    let this_machine_count = calib_store
-        .records
-        .iter()
-        .filter(|r| r.machine_id == preliminary.machine_id)
-        .count();
-    Ok(profile::HardwareCapabilityProfile {
-        calibration_record_count: this_machine_count,
-        ..preliminary
-    })
+    Ok(profile::build_profile_for_machine(
+        &hw,
+        now_rfc3339(),
+        &calib_store,
+    ))
 }
 
 /// Shareable shape for `brute profile create`'s JSON/file output:
@@ -1050,104 +1021,6 @@ fn cmd_backends_verify(
     Ok(())
 }
 
-/// Decides which single GPU backend (if any) tuning is allowed to
-/// generate GPU-offload candidates for - `None` unless a real
-/// end-to-end verification (not mere driver detection) passed. When the
-/// user pins `--backend cpu`, no GPU backend is even attempted; when they
-/// pin a specific GPU backend, only that one is checked; otherwise both
-/// CUDA and Vulkan are opportunistically verified and the first verified
-/// one wins.
-fn determine_verified_gpu_backend(
-    model: &Path,
-    llama_bin: &Path,
-    profile: &profile::HardwareCapabilityProfile,
-    requested_backend: Option<Backend>,
-    allow_unverified_binary: bool,
-    timeout: Duration,
-) -> (Option<Backend>, Vec<backends::BackendVerification>) {
-    let to_check: Vec<Backend> = match requested_backend {
-        Some(Backend::Cpu) => vec![],
-        Some(b) => vec![b],
-        None => vec![Backend::Cuda, Backend::Vulkan],
-    };
-
-    let mut verifications = Vec::new();
-    let mut verified_gpu = None;
-    for b in to_check {
-        let v = backends::verify_backend(
-            b,
-            Some(llama_bin),
-            model,
-            profile,
-            allow_unverified_binary,
-            timeout,
-        );
-        if v.status == backends::BackendStatus::Verified && verified_gpu.is_none() {
-            verified_gpu = Some(b);
-        }
-        verifications.push(v);
-    }
-    (verified_gpu, verifications)
-}
-
-const TUNE_PROMPT_TOKENS: u32 = 64;
-const TUNE_GEN_TOKENS: u32 = 32;
-const TUNE_PER_RUN_TIMEOUT_SECS: u64 = 60;
-const TUNE_BACKEND_VERIFY_TIMEOUT_SECS: u64 = 60;
-
-fn run_one_tuning_repetition(
-    llama_bin: &Path,
-    model_path: &Path,
-    candidate: &tuning::candidates::Candidate,
-    allow_unverified_binary: bool,
-) -> tuning::runner::RepetitionSample {
-    let config = RuntimeConfig {
-        backend: candidate.backend,
-        binary_dir: llama_bin.to_path_buf(),
-        threads: candidate.threads,
-        gpu_layers: candidate.gpu_layers,
-        context_size: candidate.context_size,
-        batch_size: candidate.batch_size,
-        prompt_tokens: TUNE_PROMPT_TOKENS,
-        gen_tokens: TUNE_GEN_TOKENS,
-        repetitions: 1,
-        timeout_secs: TUNE_PER_RUN_TIMEOUT_SECS,
-    };
-
-    match runtime::llama_cpp::run_bench(
-        llama_bin,
-        model_path,
-        &config,
-        allow_unverified_binary,
-        |_| runtime::process::TickAction::Continue,
-    ) {
-        Ok((rows, run)) => tuning::runner::RepetitionSample {
-            succeeded: run.succeeded(),
-            timed_out: run.timed_out,
-            cancelled: run.cancelled,
-            crashed: !run.succeeded() && !run.timed_out && !run.cancelled,
-            generation_tokens_per_second: rows.iter().find(|r| r.test == "tg").map(|r| r.avg_ts),
-            prompt_tokens_per_second: rows.iter().find(|r| r.test == "pp").map(|r| r.avg_ts),
-        },
-        Err(errors::ProcessError::TimedOut { .. }) => tuning::runner::RepetitionSample {
-            succeeded: false,
-            timed_out: true,
-            cancelled: false,
-            crashed: false,
-            generation_tokens_per_second: None,
-            prompt_tokens_per_second: None,
-        },
-        Err(_) => tuning::runner::RepetitionSample {
-            succeeded: false,
-            timed_out: false,
-            cancelled: false,
-            crashed: true,
-            generation_tokens_per_second: None,
-            prompt_tokens_per_second: None,
-        },
-    }
-}
-
 /// Cross-process progress reporting for `brute tune status` - a
 /// best-effort convenience, not a safety mechanism. Writing it is never
 /// allowed to fail the actual tuning run (see `write_tune_status`).
@@ -1198,13 +1071,13 @@ fn cmd_tune_run(
     let machine_profile =
         profile::build_profile(&hardware::inspect(model.parent()), now_rfc3339(), 0);
 
-    let (verified_gpu_backend, backend_verifications) = determine_verified_gpu_backend(
+    let (verified_gpu_backend, backend_verifications) = backends::determine_verified_gpu_backend(
         model,
         llama_bin,
         &machine_profile,
         backend,
         allow_unverified_binary,
-        Duration::from_secs(TUNE_BACKEND_VERIFY_TIMEOUT_SECS),
+        Duration::from_secs(tuning::runner::TUNE_BACKEND_VERIFY_TIMEOUT_SECS),
     );
 
     let plan =
@@ -1273,7 +1146,13 @@ fn cmd_tune_run(
                 cancelled: false,
                 finished_at: None,
             });
-            run_one_tuning_repetition(llama_bin, &model_path, candidate, allow_unverified_binary)
+            tuning::runner::run_candidate_repetition(
+                llama_bin,
+                &model_path,
+                candidate,
+                allow_unverified_binary,
+                |_| runtime::process::TickAction::Continue,
+            )
         },
     );
 
