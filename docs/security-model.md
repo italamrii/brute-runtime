@@ -1,4 +1,4 @@
-# Security model — Stage 0, Stage 1, Stage 2, and Stage 3
+# Security model — Stage 0 through Stage 4
 
 ## Threats considered
 
@@ -188,6 +188,67 @@
   mismatch is always fatal; an unavailable hardware measurement is always
   reported as `unavailable`, never defaulted to a plausible-looking value.
 
+## Stage 4: Tauri desktop security boundary
+
+15. **The frontend can only reach a fixed, validated command surface -
+    never a shell or arbitrary process.** `desktop/src-tauri/capabilities/default.json`
+    grants only `core:default`, `opener:default` (used solely for a
+    user-clicked catalog source link, never automatically), and
+    `dialog:allow-open`/`dialog:allow-save` (native file/folder pickers
+    only). There is no shell plugin, no generic process plugin, and no
+    unrestricted filesystem plugin in `Cargo.toml` - every filesystem or
+    process operation the frontend can trigger goes through one of the
+    explicit `#[tauri::command]` functions in `desktop/src-tauri/src/commands/`,
+    each of which calls into the same validated `brute` engine functions
+    the CLI uses (`security::validate_regular_file`, bounded GGUF
+    parsing, argv-based `Command`, binary hash verification - all
+    unchanged from Stage 0-3). The frontend cannot construct or launch an
+    arbitrary command string.
+
+16. **Every path a native dialog returns is re-validated, never trusted
+    because it came from a dialog.** A compromised or buggy frontend
+    handing a crafted path to `library_import`/`library_scan`/`tune_dry_run`/etc.
+    still goes through the exact same `security::validate_regular_file`/
+    `LibraryError::InvalidScanRoot` checks a CLI invocation would - the
+    IPC boundary adds no additional trust.
+
+17. **Strict CSP, no remote content, no devtools trust boundary
+    surprises.** `tauri.conf.json`'s `app.security.csp` is
+    `default-src 'self'; script-src 'self'; ...; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'; form-action 'none'` -
+    no remote script/style/font origins, no `unsafe-eval`. `assetProtocol.enable`
+    is `false` (the frontend never needs to load an arbitrary local file
+    by URL - every file access goes through a command). The frontend is
+    built entirely from locally bundled assets (Vite production build,
+    no CDN fonts, no external analytics SDKs in `package.json`).
+
+18. **IPC payloads are bounded by construction, not by an explicit
+    size limit.** Every command parameter is a small string, number, or
+    bounded struct (the largest realistic payload is `library_list`'s
+    full entry array, which is the same data `brute library list --json`
+    already prints - bounded by the local library's real size, never
+    user-controlled beyond that). No command accepts an open-ended blob
+    (e.g. raw file contents) over IPC; file contents are always read
+    server-side (Rust) from a validated path, never shipped through IPC.
+
+19. **Errors are sanitized before they reach the frontend.** Every
+    command returns `Result<T, String>`, and every `Err` arm is built
+    from `.to_string()` on a `brute` error type or a short, hand-written
+    message - never a raw `std::io::Error` debug format that could leak
+    an internal path structure beyond what the user already provided, and
+    never a Rust panic message or stack trace (no command contains a
+    reachable `.unwrap()`/`.expect()` on attacker- or environment-
+    controlled input - see the `#[cfg(test)]` modules in
+    `desktop/src-tauri/src/commands/*.rs`, which specifically exercise
+    nonexistent paths/IDs and assert a clean `Err`, never a panic).
+
+20. **Cancellation state is desktop-shell-only and cannot be used to
+    corrupt engine state.** `desktop/src-tauri/src/state.rs`'s `AppState`
+    holds only two `Mutex<Option<Arc<AtomicBool>>>` cancellation flags -
+    it is not a cache of engine data and cannot drift out of sync with
+    `%LOCALAPPDATA%\BruteRuntime\`, since every command re-reads that
+    state fresh on every call (see `docs/architecture.md`, "Why the
+    desktop backend has almost no state of its own").
+
 ## Residual risk / honest limitations
 
 - The GitHub API digest pinned in the manifest is trusted as the root of
@@ -202,3 +263,10 @@
   sandbox or otherwise constrain what a GPU-backend llama.cpp binary does
   once launched — the same subprocess trust boundary applies to it as to
   the CPU backend.
+- The desktop build is unsigned (no real code-signing certificate was
+  available for this MVP). The Settings page and packaging output must
+  display "Development build — publisher signature not yet configured."
+  rather than implying a verified publisher identity - see
+  `docs/windows-packaging.md`. This means Windows SmartScreen will show
+  an unrecognized-publisher warning on first run; BRUTE does not attempt
+  to bypass or suppress that warning.

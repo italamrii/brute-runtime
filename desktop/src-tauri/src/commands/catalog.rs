@@ -28,12 +28,12 @@ fn build_machine_profile(app: &AppHandle) -> HardwareCapabilityProfile {
     brute::profile::build_profile_for_machine(&hw, now_rfc3339(), &load_calibration(app))
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn catalog_list(app: AppHandle) -> Result<Vec<ModelBuild>, String> {
     Ok(load_catalog(&app)?.builds)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn catalog_show(app: AppHandle, catalog_id: String) -> Result<ModelBuild, String> {
     let catalog = load_catalog(&app)?;
     catalog
@@ -42,14 +42,14 @@ pub fn catalog_show(app: AppHandle, catalog_id: String) -> Result<ModelBuild, St
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn calibrations_list(app: AppHandle) -> Result<CalibrationStore, String> {
     Ok(load_calibration(&app))
 }
 
 /// Fit classification for one catalog build against this machine - spec
 /// section 10's "fit and recommendation workspace" data source.
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn fit_evaluate(
     app: AppHandle,
     catalog_id: String,
@@ -77,7 +77,7 @@ pub struct RecommendationDto {
     pub ranking_formula_version: String,
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn recommend_model(
     app: AppHandle,
     task: Option<TaskCategory>,
@@ -110,7 +110,7 @@ pub struct ExplainFitDto {
 
 /// The Simple + Technical explanation pair for one catalog build (spec
 /// section 10).
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn explain_fit(
     app: AppHandle,
     catalog_id: String,

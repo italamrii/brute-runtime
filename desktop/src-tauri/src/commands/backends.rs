@@ -19,7 +19,7 @@ fn now_rfc3339() -> String {
 /// directory. Never reports a backend verified on driver/library
 /// presence alone - only a real short benchmark that actually reports
 /// GPU use counts.
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn backends_verify(
     model: String,
     llama_bin: String,
@@ -50,4 +50,49 @@ pub fn backends_verify(
             )
         })
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A missing llama.cpp binary directory and a missing model must
+    /// degrade to an honest failed/unavailable status for every backend -
+    /// never panic, and never spawn an arbitrary process from an
+    /// unvalidated path.
+    #[test]
+    fn backends_verify_degrades_gracefully_with_no_real_binary_or_model() {
+        let result = backends_verify(
+            "C:\\this\\model\\does\\not\\exist.gguf".to_string(),
+            "C:\\this\\binary\\dir\\does\\not\\exist".to_string(),
+            None,
+            true,
+            5,
+        );
+
+        let verifications = result.expect("verification always returns a report, never an error");
+        assert_eq!(
+            verifications.len(),
+            3,
+            "CPU, CUDA, and Vulkan should all be checked"
+        );
+        for v in &verifications {
+            assert_ne!(v.status, brute::backends::BackendStatus::Verified);
+        }
+    }
+
+    #[test]
+    fn backends_verify_checks_only_the_requested_backend_when_one_is_pinned() {
+        let result = backends_verify(
+            "C:\\this\\model\\does\\not\\exist.gguf".to_string(),
+            "C:\\this\\binary\\dir\\does\\not\\exist".to_string(),
+            Some(Backend::Cpu),
+            true,
+            5,
+        );
+
+        let verifications = result.unwrap();
+        assert_eq!(verifications.len(), 1);
+        assert_eq!(verifications[0].backend, Backend::Cpu);
+    }
 }

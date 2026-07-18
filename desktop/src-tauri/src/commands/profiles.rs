@@ -21,13 +21,13 @@ fn binary_hash(path: &Path, allow_unverified_binary: bool) -> Option<String> {
         .map(|c| c.sha256)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn profiles_list() -> Result<Vec<String>, String> {
     runtime_profile::list_profile_ids_in(&runtime_profile::default_profiles_dir())
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn profiles_show(profile_id: String) -> Result<RuntimeProfile, String> {
     runtime_profile::load_profile_from(&runtime_profile::default_profiles_dir(), &profile_id)
         .map_err(|e| e.to_string())
@@ -36,7 +36,7 @@ pub fn profiles_show(profile_id: String) -> Result<RuntimeProfile, String> {
 /// Launches a real short verification run and reports whether the saved
 /// settings still actually work on this machine/model/binaries - never
 /// a cached or assumed result.
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn profiles_verify(
     profile_id: String,
     model: String,
@@ -77,7 +77,7 @@ pub fn profiles_verify(
 
 /// Writes a sanitized (machine ID redacted) copy of the profile to
 /// `output_path`. Never includes a username or local path.
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn profiles_export(profile_id: String, output_path: String) -> Result<(), String> {
     let profile =
         runtime_profile::load_profile_from(&runtime_profile::default_profiles_dir(), &profile_id)
@@ -89,8 +89,58 @@ pub fn profiles_export(profile_id: String, output_path: String) -> Result<(), St
 
 /// Deletes only the local profile metadata file - the model and any
 /// runtime binary are never touched.
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn profiles_delete(profile_id: String) -> Result<(), String> {
     runtime_profile::delete_profile_from(&runtime_profile::default_profiles_dir(), &profile_id)
         .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const NONEXISTENT_PROFILE_ID: &str = "profile-definitely-not-real-brute-desktop-test";
+
+    /// Showing a profile ID that was never saved must come back as a
+    /// sanitized `Err`, never a panic - IDs reaching this command may
+    /// originate from a stale frontend cache.
+    #[test]
+    fn profiles_show_rejects_an_unknown_profile_id() {
+        let result = profiles_show(NONEXISTENT_PROFILE_ID.to_string());
+        assert!(result.is_err());
+    }
+
+    /// Deleting a profile that was never saved is still a clean `Err`,
+    /// not a panic - and critically, this only ever touches the local
+    /// profile metadata file, never a model file (see the doc comment on
+    /// `profiles_delete` above).
+    #[test]
+    fn profiles_delete_rejects_an_unknown_profile_id_without_panicking() {
+        let result = profiles_delete(NONEXISTENT_PROFILE_ID.to_string());
+        assert!(result.is_err());
+    }
+
+    /// Live real-machine acceptance check (spec section 24): the Stage 2
+    /// saved runtime profile from real tuning against the Qwen2.5-0.5B
+    /// model must still be listable and showable through the desktop
+    /// command layer exactly as it is through the CLI. Skipped, not
+    /// failed, on a machine without that local state.
+    #[test]
+    fn profiles_show_returns_the_real_saved_stage2_profile_if_present() {
+        const KNOWN_PROFILE_ID: &str = "profile-instance-f052be34d631ff2889844a7551eea020";
+        let dir = runtime_profile::default_profiles_dir();
+        if !dir.join(format!("{KNOWN_PROFILE_ID}.json")).is_file() {
+            eprintln!("skipping: real Stage 2 profile fixture not present on this machine");
+            return;
+        }
+
+        let profile =
+            profiles_show(KNOWN_PROFILE_ID.to_string()).expect("the real saved profile must load");
+        assert_eq!(profile.profile_id, KNOWN_PROFILE_ID);
+        assert_eq!(
+            profile.model_sha256.len(),
+            64,
+            "sha256 must be a real 64-char hex digest"
+        );
+    }
 }

@@ -1,51 +1,56 @@
 import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { I18nProvider } from "./i18n/I18nContext";
+import { AppStatusProvider } from "./lib/AppStatusContext";
+import { Shell } from "./components/Shell";
+import { Onboarding } from "./pages/Onboarding";
+import { Overview } from "./pages/Overview";
+import { Hardware } from "./pages/Hardware";
+import { Models } from "./pages/Models";
+import { Optimize } from "./pages/Optimize";
+import { Run } from "./pages/Run";
+import { Profiles } from "./pages/Profiles";
+import { Health } from "./pages/Health";
+import { Settings } from "./pages/Settings";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+export type Page = "overview" | "hardware" | "models" | "optimize" | "run" | "profiles" | "health" | "settings";
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
+const ONBOARDED_KEY = "brute.onboarded";
+
+function AppShellRouter() {
+  const [onboarded, setOnboarded] = useState<boolean>(() => window.localStorage.getItem(ONBOARDED_KEY) === "1");
+  const [page, setPage] = useState<Page>("overview");
+
+  if (!onboarded) {
+    return (
+      <Onboarding
+        onDone={() => {
+          window.localStorage.setItem(ONBOARDED_KEY, "1");
+          setOnboarded(true);
+        }}
+      />
+    );
   }
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+    <Shell active={page} onNavigate={setPage}>
+      {page === "overview" && <Overview onNavigate={setPage} />}
+      {page === "hardware" && <Hardware />}
+      {page === "models" && <Models />}
+      {page === "optimize" && <Optimize />}
+      {page === "run" && <Run />}
+      {page === "profiles" && <Profiles />}
+      {page === "health" && <Health />}
+      {page === "settings" && <Settings />}
+    </Shell>
   );
 }
 
-export default App;
+export default function App() {
+  return (
+    <I18nProvider>
+      <AppStatusProvider>
+        <AppShellRouter />
+      </AppStatusProvider>
+    </I18nProvider>
+  );
+}

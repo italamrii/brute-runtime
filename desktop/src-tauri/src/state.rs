@@ -38,3 +38,36 @@ pub fn is_cancelled(flag: &CancelFlag) -> bool {
 pub fn request_cancel(flag: &CancelFlag) {
     flag.store(true, Ordering::SeqCst);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_fresh_flag_starts_uncancelled() {
+        let flag = new_cancel_flag();
+        assert!(!is_cancelled(&flag));
+    }
+
+    #[test]
+    fn request_cancel_is_observed_through_every_clone() {
+        let flag = new_cancel_flag();
+        let clone = flag.clone();
+        assert!(!is_cancelled(&clone));
+
+        request_cancel(&flag);
+
+        assert!(is_cancelled(&flag));
+        assert!(
+            is_cancelled(&clone),
+            "a cloned Arc must see the same cancellation state"
+        );
+    }
+
+    #[test]
+    fn app_state_starts_with_no_active_session() {
+        let state = AppState::default();
+        assert!(state.tune_cancel.lock().unwrap().is_none());
+        assert!(state.run_cancel.lock().unwrap().is_none());
+    }
+}

@@ -37,7 +37,7 @@ pub struct LocalRunOutcome {
 /// window event as it arrives. Never executes a raw file path handed
 /// straight from the frontend - `library_id` must resolve through the
 /// trusted library index first.
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn local_run_generate(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -122,14 +122,8 @@ fn generate_blocking(
             return;
         };
         buf.extend_from_slice(bytes);
-        let valid_len = match std::str::from_utf8(&buf) {
-            Ok(_) => buf.len(),
-            Err(e) => e.valid_up_to(),
-        };
-        if valid_len > 0 {
-            let text = String::from_utf8_lossy(&buf[..valid_len]).into_owned();
+        if let Some(text) = drain_utf8_prefix(&mut buf) {
             let _ = app_for_stream.emit("local-run-chunk", text);
-            buf.drain(..valid_len);
         }
     };
 
@@ -176,7 +170,7 @@ fn generate_blocking(
 
 /// Requests cancellation of the currently streaming local run, if any.
 /// A no-op (not an error) when nothing is running.
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn local_run_cancel(state: State<'_, AppState>) -> Result<(), String> {
     let guard = state
         .run_cancel
@@ -186,4 +180,78 @@ pub fn local_run_cancel(state: State<'_, AppState>) -> Result<(), String> {
         request_cancel(flag);
     }
     Ok(())
+}
+
+/// Removes and returns the longest valid-UTF-8 prefix of `buf`, leaving
+/// any trailing incomplete multi-byte sequence in place for the next
+/// chunk to complete. llama-cli's raw stdout reads are 4096-byte chunks
+/// with no regard for character boundaries, so a naive
+/// `from_utf8_lossy` per chunk would corrupt any multi-byte character -
+/// including Arabic text - that happens to straddle a chunk boundary.
+/// Returns `None` when nothing new and complete is available yet.
+fn drain_utf8_prefix(buf: &mut Vec<u8>) -> Option<String> {
+    let valid_len = match std::str::from_utf8(buf) {
+        Ok(_) => buf.len(),
+        Err(e) => e.valid_up_to(),
+    };
+    if valid_len == 0 {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&buf[..valid_len]).into_owned();
+    buf.drain(..valid_len);
+    Some(text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drain_utf8_prefix_returns_none_for_an_empty_buffer() {
+        let mut buf = Vec::new();
+        assert_eq!(drain_utf8_prefix(&mut buf), None);
+    }
+
+    #[test]
+    fn drain_utf8_prefix_returns_the_whole_chunk_when_it_is_valid_utf8() {
+        let mut buf = "hello".as_bytes().to_vec();
+        assert_eq!(drain_utf8_prefix(&mut buf), Some("hello".to_string()));
+        assert!(buf.is_empty());
+    }
+
+    /// The exact scenario the doc comment warns about: a multi-byte
+    /// Arabic character's bytes split across two chunk boundaries must
+    /// reassemble correctly rather than being corrupted or dropped.
+    #[test]
+    fn drain_utf8_prefix_holds_back_a_split_multibyte_character_across_chunks() {
+        let word = "بيانات"; // "data" - multi-byte Arabic, each codepoint 2 bytes in UTF-8
+        let bytes = word.as_bytes();
+        assert!(bytes.len() > 2, "test needs a genuinely multi-byte string");
+        let split_point = 3; // guaranteed to land mid-character for this word
+
+        let mut buf = bytes[..split_point].to_vec();
+        let first = drain_utf8_prefix(&mut buf);
+        // Whatever prefix was already complete came through; the
+        // incomplete trailing bytes must remain in `buf`, not be lost.
+        let first_text = first.unwrap_or_default();
+        assert!(
+            !buf.is_empty(),
+            "the incomplete trailing byte(s) must be held back"
+        );
+
+        buf.extend_from_slice(&bytes[split_point..]);
+        let second = drain_utf8_prefix(&mut buf).unwrap_or_default();
+
+        assert_eq!(format!("{first_text}{second}"), word);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn drain_utf8_prefix_never_panics_on_truncated_trailing_bytes() {
+        // A lone continuation byte can never become valid on its own -
+        // draining must not panic or loop forever.
+        let mut buf = vec![0xE2, 0x82]; // incomplete 3-byte sequence (would be part of e.g. '€')
+        assert_eq!(drain_utf8_prefix(&mut buf), None);
+        assert_eq!(buf.len(), 2);
+    }
 }

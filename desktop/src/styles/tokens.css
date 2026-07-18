@@ -1,0 +1,52 @@
+/* BRUTE Runtime design tokens — premium systems-engineering instrument
+   look: black/charcoal foundation, deep red instrumentation accents, a
+   restrained brighter red reserved for active/warning states, off-white
+   primary text, muted gray secondary text. No neon gradients, no
+   glassmorphism, no gaming aesthetic. */
+
+:root {
+  --bg-void: #0a0a0b;
+  --bg-panel: #131315;
+  --bg-panel-raised: #19191c;
+  --bg-inset: #0e0e10;
+  --border-subtle: #2a2a2e;
+  --border-strong: #3a3a3f;
+
+  --text-primary: #ededea;
+  --text-secondary: #9a9a9e;
+  --text-tertiary: #6b6b70;
+
+  --accent-red: #8f1d20;
+  --accent-red-strong: #c62f30;
+  --accent-red-active: #e6484a;
+  --accent-red-dim: #3a1616;
+
+  --state-good: #4a9d6e;
+  --state-warn: #c8942f;
+  --state-bad: var(--accent-red-active);
+  --state-unknown: #6b6b70;
+
+  --focus-ring: #e6484a;
+
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
+
+  --font-ui: "Segoe UI", "Tahoma", system-ui, -apple-system, sans-serif;
+  --font-mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --sidebar-width: 220px;
+  --statusbar-height: 32px;
+
+  /* The instrument-panel look is a deliberate, committed aesthetic
+     (spec section 1), not a light/dark toggle — color-scheme is fixed
+     to dark rather than following the OS preference. */
+  color-scheme: dark;
+}

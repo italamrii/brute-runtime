@@ -1,4 +1,4 @@
-# Known limitations — Stage 0, Stage 1, Stage 2, and Stage 3
+# Known limitations — Stage 0 through Stage 4
 
 These are real, observed limitations, not a hedge-everything disclaimer.
 Each one was either hit directly during verification on this machine or
@@ -276,3 +276,44 @@ is a deliberate, documented scope cut.
   well past 260 characters was discovered correctly), but not stress-
   tested against the absolute historical `MAX_PATH` edge cases some
   older Windows APIs still enforce.
+
+## Stage 4 (desktop application)
+
+- **The desktop build is unsigned.** No real code-signing certificate
+  was available for this MVP. The app displays "Development build —
+  publisher signature not yet configured." rather than claiming a
+  verified publisher, and Windows SmartScreen will show its standard
+  unrecognized-publisher warning on first run - BRUTE does not attempt to
+  suppress or bypass it. See `docs/windows-packaging.md`.
+- **CUDA/Vulkan live verification depends on which llama.cpp binaries the
+  user points BRUTE at.** The desktop app ships no llama.cpp binary
+  itself (matching the CLI's own model - see `docs/security-model.md`
+  §2-3); on a machine where only the pinned CPU-only binary from Stage 0
+  is available, the Hardware page and backend verification honestly
+  report CUDA/Vulkan as detected-but-unverified rather than fabricating a
+  verified status. This is the same honest degradation Stage 2 already
+  established for the CLI, carried through unchanged.
+- **No automated screenshot capture in this session.** Real-machine
+  end-to-end validation (spec section 24) was performed by (a) a
+  successful `cargo tauri dev` launch against real hardware and (b) two
+  live Rust tests (`library_list_shows_the_real_imported_model_with_its_real_hash_if_present`,
+  `profiles_show_returns_the_real_saved_stage2_profile_if_present`) that
+  exercise the desktop command layer directly against this machine's real
+  imported Qwen2.5-0.5B model and real saved Stage 2 runtime profile.
+  Interactive UI screenshots require a human (or a screen-capture tool
+  not available in this session) to actually click through the running
+  app - see `docs/stage-4-verification.md` for exactly what was and
+  was not verified this way.
+- **Session history is intentionally absent from the Run workspace.**
+  Per the Stage 4 scope decision, prompts and outputs are never persisted
+  by default and no local session-history feature was added - each Run
+  session exists only in the webview's memory until the page is left.
+- **The frontend's TypeScript types in `lib/types.ts` are hand-maintained
+  mirrors of the Rust `serde` types**, not generated from a schema. A
+  future engine type change requires updating both sides by hand; nothing
+  currently detects a mismatch except a runtime shape error during manual
+  testing (there is no `specta`/schema-generation step in this MVP).
+- **Only one auto-tune or one local-generation session can be active at a
+  time**, matching the CLI's own single-run model (`AppState` holds one
+  cancellation flag per session type) - not a limitation introduced by
+  the desktop layer, an intentional continuation of Stage 2's design.

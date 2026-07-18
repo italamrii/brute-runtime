@@ -36,12 +36,12 @@ fn try_load_calibration(app: &AppHandle) -> brute::calibration::CalibrationStore
     brute::calibration::CalibrationStore::load(&paths::calibration_path(app)).unwrap_or_default()
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn library_list() -> Result<Vec<LibraryEntry>, String> {
     Ok(load_store()?.entries)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn library_show(library_id: String) -> Result<LibraryEntry, String> {
     let store = load_store()?;
     store
@@ -56,7 +56,7 @@ pub struct AssociationsDto {
     pub calibration_record_count: usize,
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn library_associations(app: AppHandle, library_id: String) -> Result<AssociationsDto, String> {
     let store = load_store()?;
     let entry = store.require(&library_id).map_err(|e| e.to_string())?;
@@ -75,7 +75,7 @@ pub fn library_associations(app: AppHandle, library_id: String) -> Result<Associ
     })
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn library_import(
     app: AppHandle,
     path: String,
@@ -121,13 +121,13 @@ fn build_scan_options(dto: &ScanOptionsDto) -> ScanOptions {
 
 /// Dry discovery only - never imports anything. Matches
 /// `brute library scan`'s default behavior exactly.
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn library_scan(root: String, options: ScanOptionsDto) -> Result<ScanResult, String> {
     let scan_options = build_scan_options(&options);
     library::scan::scan(Path::new(&root), &scan_options, || false).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn library_import_directory(
     app: AppHandle,
     root: String,
@@ -155,7 +155,7 @@ pub struct VerifyOutcomeDto {
     pub skipped_reason: Option<String>,
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn library_verify(
     library_id: Option<String>,
     all: bool,
@@ -205,7 +205,7 @@ pub struct RefreshOutcomeDto {
     pub file_status: brute::library::FileStatus,
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn library_refresh(
     library_id: Option<String>,
     all: bool,
@@ -235,7 +235,7 @@ pub fn library_refresh(
     Ok(results)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn library_audit(app: AppHandle) -> Result<AuditReport, String> {
     let store = load_store()?;
     let calibration_store = try_load_calibration(&app);
@@ -247,17 +247,17 @@ pub fn library_audit(app: AppHandle) -> Result<AuditReport, String> {
     ))
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn library_duplicates() -> Result<Vec<DuplicateGroup>, String> {
     Ok(library::duplicates::find_duplicate_groups(&load_store()?))
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn library_storage() -> Result<StorageSummary, String> {
     Ok(library::storage::summarize(&load_store()?))
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn library_locate(library_id: String, new_path: String) -> Result<LocateOutcome, String> {
     let mut store = load_store()?;
     let outcome = library::verify::locate(&mut store, &library_id, Path::new(&new_path))
@@ -266,7 +266,7 @@ pub fn library_locate(library_id: String, new_path: String) -> Result<LocateOutc
     Ok(outcome)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn library_alias(library_id: String, name: String) -> Result<(), String> {
     let mut store = load_store()?;
     let entry = store
@@ -276,7 +276,7 @@ pub fn library_alias(library_id: String, name: String) -> Result<(), String> {
     save_store(&store)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn library_note(library_id: String, text: String) -> Result<(), String> {
     let mut store = load_store()?;
     let entry = store
@@ -288,14 +288,14 @@ pub fn library_note(library_id: String, text: String) -> Result<(), String> {
 
 /// Removes tracking metadata only - the underlying model file is never
 /// touched. See docs/quarantine-and-recovery.md.
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn library_forget(library_id: String) -> Result<(), String> {
     let mut store = load_store()?;
     store.forget(&library_id).map_err(|e| e.to_string())?;
     save_store(&store)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn library_quarantine(library_id: String, reason: String) -> Result<(), String> {
     let mut store = load_store()?;
     store
@@ -306,7 +306,7 @@ pub fn library_quarantine(library_id: String, reason: String) -> Result<(), Stri
 
 /// Always re-runs a full verification pass before clearing quarantine -
 /// never a bare flag flip. See docs/quarantine-and-recovery.md.
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn library_unquarantine(library_id: String) -> Result<GgufVerification, String> {
     let mut store = load_store()?;
     let result = store.unquarantine(&library_id).map_err(|e| e.to_string());
@@ -314,7 +314,7 @@ pub fn library_unquarantine(library_id: String) -> Result<GgufVerification, Stri
     result
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn library_quarantined() -> Result<Vec<LibraryEntry>, String> {
     Ok(load_store()?
         .entries
@@ -326,7 +326,7 @@ pub fn library_quarantined() -> Result<Vec<LibraryEntry>, String> {
 /// Writes the full library index to `output_path`, sanitized
 /// (`library::sanitize_entry_for_export`) - no local paths, no machine
 /// identifiers. Returns the number of entries written.
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn library_export(output_path: String) -> Result<usize, String> {
     let store = load_store()?;
     let sanitized: Vec<LibraryEntry> = store
@@ -337,4 +337,77 @@ pub fn library_export(output_path: String) -> Result<usize, String> {
     let json = serde_json::to_string_pretty(&sanitized).map_err(|e| e.to_string())?;
     std::fs::write(&output_path, json).map_err(|e| e.to_string())?;
     Ok(sanitized.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn default_scan_options() -> ScanOptionsDto {
+        ScanOptionsDto {
+            recursive: true,
+            max_depth: None,
+            max_files: None,
+            max_total_bytes: None,
+            max_duration_secs: None,
+        }
+    }
+
+    /// A nonexistent directory must come back as a sanitized `Err`, never
+    /// a panic - the frontend hands this command whatever a native
+    /// folder-picker or a stale saved path returns, which is not
+    /// guaranteed to still exist.
+    #[test]
+    fn library_scan_rejects_a_nonexistent_root_without_panicking() {
+        let result = library_scan(
+            "C:\\this\\path\\does\\not\\exist\\brute-test".to_string(),
+            default_scan_options(),
+        );
+        assert!(result.is_err());
+    }
+
+    /// Scanning never imports anything by itself - a directory containing
+    /// no `.gguf` files must report zero discovered candidates, not
+    /// error, and must not create a library index as a side effect.
+    #[test]
+    fn library_scan_on_an_empty_directory_reports_zero_candidates() {
+        let dir = std::env::temp_dir().join(format!("brute-desktop-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let result = library_scan(dir.display().to_string(), default_scan_options());
+
+        std::fs::remove_dir_all(&dir).ok();
+
+        let scan = result.expect("scanning an existing empty directory must succeed");
+        assert_eq!(scan.discovered.len(), 0);
+        assert!(!scan.cancelled);
+    }
+
+    /// Live real-machine acceptance check (spec section 24): when this
+    /// machine's already-imported Qwen2.5-0.5B model is present in the
+    /// real local library, `library_list` must show it with its real,
+    /// previously-verified SHA-256 - not a placeholder or fabricated
+    /// value. Skipped, not failed, on a machine without that local
+    /// state, matching the core crate's own real-model test convention
+    /// (see stage3_performance_test.rs).
+    #[test]
+    fn library_list_shows_the_real_imported_model_with_its_real_hash_if_present() {
+        const KNOWN_SHA256: &str =
+            "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db";
+        if !std::path::Path::new("C:\\Models\\qwen2.5-0.5b-instruct-q4_k_m.gguf").exists() {
+            eprintln!("skipping: real model fixture not present on this machine");
+            return;
+        }
+
+        let entries = library_list().expect("the real local library index must load");
+        let real_entry = entries
+            .iter()
+            .find(|e| e.sha256 == KNOWN_SHA256)
+            .expect("the real imported model must be tracked in the local library");
+        assert_eq!(real_entry.architecture.as_deref(), Some("qwen2"));
+        assert!(
+            real_entry.current_path.is_file(),
+            "the tracked path must point at a real file, never a fabricated one"
+        );
+    }
 }

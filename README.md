@@ -1,7 +1,13 @@
-# BRUTE Runtime — Stage 0 + Stage 1 + Stage 2 + Stage 3
+# BRUTE Runtime
 
-A Windows-first local-AI optimization system, still CLI-only — no
-desktop UI yet. **Stage 0** proved the hard technical parts work with
+A Windows-first, fully local AI workspace — hardware-aware GGUF model
+inspection, fit analysis, runtime auto-tuning, a trusted local model
+library, and local prompt generation, available both as a CLI and as a
+native Windows desktop app. **بياناتك ما تطلع من جهازك — your data never
+leaves your device.** Fully offline, no telemetry, no accounts, no cloud
+database, no automatic uploads or downloads.
+
+**Stage 0** proved the hard technical parts work with
 real measurements (hardware inspection, GGUF parsing, llama.cpp
 benchmarking). **Stage 1** builds a truthful hardware-intelligence and
 model-fit engine on top: given a small local catalog of model builds, it
@@ -21,7 +27,11 @@ never deletes anything on its own. See
 [`docs/stage-2-runtime-auto-tuning.md`](docs/stage-2-runtime-auto-tuning.md),
 and
 [`docs/stage-3-trusted-local-library.md`](docs/stage-3-trusted-local-library.md)
-for the full overviews.
+for the full overviews. **Stage 4** wraps all of the above in a Tauri +
+React + TypeScript Windows desktop application — the same engine, a
+validated command boundary, no logic duplicated in the frontend. See
+"Desktop application" below and
+[`docs/architecture.md`](docs/architecture.md)'s "Stage 4" section.
 
 ## What Stage 0 does
 
@@ -129,6 +139,54 @@ bottom of this file.
 
 See [`docs/stage-3-trusted-local-library.md`](docs/stage-3-trusted-local-library.md)
 for commands and real output.
+
+## Desktop application (Stage 4)
+
+`desktop/` is a Tauri v2 + React + TypeScript-strict + Vite Windows
+desktop app exposing all of the above through a validated command
+boundary — the engine (`brute` library crate at the repo root) is the
+single source of truth; the desktop backend only wraps it, and the
+frontend only calls typed wrappers around Tauri `invoke`. See
+[`docs/desktop-architecture` section of architecture.md](docs/architecture.md#stage-4-desktop-application),
+[`docs/tauri-security-boundary` section of security-model.md](docs/security-model.md#stage-4-tauri-desktop-security-boundary),
+and [`docs/stage-4-verification.md`](docs/stage-4-verification.md).
+
+Pages: Overview, Hardware, Models (trusted library — import/scan/verify/
+quarantine), Optimize (fit/recommendation + auto-tune), Run (local
+single-session prompt generation with streaming + stop), Profiles,
+Health (audit), Settings. Full English/Arabic with RTL/LTR layout
+switching.
+
+### Running the desktop app in development
+
+```powershell
+cd desktop
+npm install
+npm run tauri dev
+```
+
+### Building a production package
+
+```powershell
+cd desktop
+npm run tauri build
+```
+
+See [`docs/windows-packaging.md`](docs/windows-packaging.md) for what
+this produces, the unsigned-build notice, and checksum verification.
+
+### Desktop-specific checks
+
+```powershell
+cd desktop
+npm run lint        # eslint
+npm run build        # tsc --noEmit equivalent + production build
+npm test              # vitest (frontend unit tests)
+cd src-tauri
+cargo test              # desktop backend Rust tests
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+```
 
 ## What Stage 0/1/2/3 intentionally do NOT do
 
@@ -433,3 +491,5 @@ building and verifying this on real hardware.
 - [`docs/library-security.md`](docs/library-security.md) — path traversal, scan loop prevention, untrusted metadata
 - [`docs/library-privacy.md`](docs/library-privacy.md) — what's redacted on export and why nothing more needs to be
 - [`docs/stage-3-verification.md`](docs/stage-3-verification.md) — Stage 3: what was actually run and observed, including a real bug found and fixed live
+- [`docs/windows-packaging.md`](docs/windows-packaging.md) — Stage 4: production build, installer output, checksums, unsigned-build notice
+- [`docs/stage-4-verification.md`](docs/stage-4-verification.md) — Stage 4: what was actually run and observed on real hardware

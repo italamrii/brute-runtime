@@ -4,7 +4,7 @@
 //! state always goes through `brute::identity::default_local_state_dir`,
 //! i.e. `%LOCALAPPDATA%\BruteRuntime\`, unrelated to this).
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
 /// The curated catalog file bundled with the app.
@@ -38,7 +38,7 @@ fn seed_data_dir(app: &AppHandle) -> PathBuf {
 
 #[cfg(debug_assertions)]
 fn dev_repo_data_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
         .join("data")

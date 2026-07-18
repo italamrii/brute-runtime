@@ -1,8 +1,12 @@
-# Architecture — Stage 0, Stage 1, Stage 2, and Stage 3
+# Architecture — Stage 0 through Stage 4 (Windows desktop MVP)
 
-BRUTE Runtime is a single Rust binary crate (`brute`), not a workspace.
-The module boundaries below are the seams a future multi-crate split
-would fall along, but a workspace isn't justified yet at this scope.
+BRUTE Runtime's engine lives in a `brute` **library** crate at the repo
+root (`src/lib.rs`), reused unchanged by two front ends: the `brute` CLI
+binary (`src/main.rs`) and the Tauri desktop app (`desktop/src-tauri/`).
+Neither front end duplicates engine logic - both are thin, validated
+wrappers. See "Stage 4: desktop application" below for the split and the
+desktop-specific module tree; everything under `src/` below is Stage
+0-3, unchanged in substance by the split (only crate membership moved).
 
 ```
 src/
@@ -326,3 +330,117 @@ types and JSON shape are completely unchanged - verified by
   `import::match_against_catalog` reach the `Exact`/`ExpectedHashMatched`
   tiers that exist in the vocabulary today but can never fire - see
   `docs/trust-and-provenance.md`.
+
+## Stage 4: desktop application
+
+```
+desktop/
+  src-tauri/                Rust backend (Tauri v2)
+    Cargo.toml               depends on `brute = { path = "../.." }`
+    src/
+      lib.rs                  tauri::Builder setup, full command registration
+      main.rs                 desktop_lib::run() entry point
+      state.rs                 AppState: in-memory tune/run cancellation flags only
+      paths.rs                 resolves bundled seed data (dev-catalog.json,
+                               seed-calibration.json) in dev vs. packaged builds
+      commands/
+        hardware.rs             hardware_profile
+        catalog.rs               catalog_list/show, calibrations_list,
+                                 fit_evaluate, recommend_model, explain_fit
+        backends.rs               backends_verify
+        library.rs                 full trusted-library surface (list, show,
+                                   associations, import, scan, import_directory,
+                                   verify, refresh, audit, duplicates, storage,
+                                   locate, alias, note, forget, quarantine,
+                                   unquarantine, quarantined, export)
+        tuning.rs                   tune_dry_run, tune_run (async, progress
+                                   events, cancellable), tune_cancel
+        profiles.rs                   profiles_list/show/verify/export/delete
+        run.rs                         local_run_generate (streaming),
+                                       local_run_cancel
+    capabilities/default.json    explicit permission allowlist (see
+                                 docs/security-model.md)
+    tauri.conf.json               strict CSP, asset protocol disabled, window
+  src/                         React + TypeScript frontend
+    lib/api.ts                   the only module that calls Tauri `invoke` -
+                                 every command has one typed wrapper here
+    lib/types.ts                  hand-maintained TypeScript mirrors of the
+                                 Rust serde types returned by commands/
+    lib/AppStatusContext.tsx       in-memory "what's currently selected"
+                                 (active model/profile/backend) for the status
+                                 bar and Run workspace - never persisted
+    i18n/                          English/Arabic strings + LTR/RTL context
+    pages/                          one file per nav destination (Overview,
+                                 Hardware, Models, Optimize, Run, Profiles,
+                                 Health, Settings) plus Onboarding
+    styles/                         tokens.css (design tokens) + global.css
+```
+
+### Why a lib/bin split instead of duplicating engine code in the desktop crate
+
+The Stage 4 mandate is explicit: preserve the Rust core as the single
+source of truth, never re-implement hardware/model/tuning/library logic
+in TypeScript (or in a second Rust copy). Splitting `src/main.rs`'s
+`mod` declarations into a `src/lib.rs` the CLI binary now depends on was
+a purely organizational change (zero logic changes - verified by an
+unchanged 299/299 test count immediately after the split) that lets
+`desktop/src-tauri` depend on the exact same `brute` crate the CLI uses.
+
+### A few pieces of CLI-only glue were promoted into the library, not duplicated
+
+Three small pieces of orchestration glue that used to live as private
+functions in `src/main.rs` are now `pub` functions in the core library,
+specifically so the desktop backend can call the identical code instead
+of re-implementing it:
+
+- `tuning::runner::run_candidate_repetition` - maps one `llama-bench`
+  attempt onto a `RepetitionSample`. Used by both `brute tune run` and
+  the desktop `tune_run` command.
+- `backends::determine_verified_gpu_backend` - decides which GPU backend
+  (if any) tuning may generate offload candidates for, based on a real
+  verification run, not detection alone. Same caller list.
+- `profile::build_profile_for_machine` - builds a `HardwareCapabilityProfile`
+  with a real `calibration_record_count` scoped to the current machine.
+  Used by the CLI's `build_profile_for_cli` and the desktop `hardware_profile`/
+  `catalog.rs` commands.
+
+### Why the desktop backend has almost no state of its own
+
+`state::AppState` holds exactly two `Mutex<Option<Arc<AtomicBool>>>`
+fields - a cancellation flag for whichever tuning run or local-generation
+session is currently active, mirroring the core engine's own
+`TickAction`/`is_cancelled` closure vocabulary rather than inventing a
+new one. Every durable fact (library index, runtime profiles,
+calibration records) is read fresh from the Rust core's own local state
+(`%LOCALAPPDATA%\BruteRuntime\`) on every command call - the same
+"compute live, never cache a second source of truth" principle Stage 3's
+`library::associations` already established (see "Why runtime-profile/
+calibration associations are computed live" above).
+
+### Why a genuinely new streaming primitive was added, not a fake one
+
+The Run workspace (spec section 13) needs real, incremental token
+delivery so Arabic and English text appear as they're generated, not
+replayed after the process exits. Rather than buffer the full output and
+chunk it artificially after the fact (which would be indistinguishable
+from a real stream in the UI but would violate "never animate fake
+measurements"), `runtime::process::run_streaming` and
+`runtime::llama_cpp::run_cli_streaming` were added as genuinely new,
+tested engine primitives (parallel to, not replacing, `run`/
+`run_cli_once`) that deliver 4096-byte stdout chunks to a caller-supplied
+closure as they're read. The desktop `local_run_generate` command then
+buffers across chunk boundaries (`commands/run.rs::drain_utf8_prefix`,
+unit-tested against a real split multi-byte Arabic character) before
+emitting text to the frontend, since llama-cli's raw byte reads have no
+regard for UTF-8 character boundaries.
+
+### Why the frontend has almost no client-side business logic
+
+`lib/api.ts` is the only module allowed to call `invoke` - every page
+imports typed functions from it rather than calling Tauri directly, so
+the full command surface is auditable in one file. Pages hold only
+presentation state (what's selected, what's being typed, live output
+buffers); every number, badge, and classification shown to the user
+comes directly from a command's JSON response, never recomputed or
+estimated in TypeScript. See `docs/security-model.md` for the Tauri IPC
+boundary this depends on.

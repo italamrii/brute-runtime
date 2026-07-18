@@ -17,7 +17,7 @@ fn now_rfc3339() -> String {
 /// (measured/detected/inferred/unavailable) for every value, and a real
 /// `calibration_record_count` for this machine. Never a fabricated
 /// universal score.
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn hardware_profile(app: AppHandle) -> Result<HardwareCapabilityProfile, String> {
     let hw = brute::hardware::inspect(None);
     let calibration_store =

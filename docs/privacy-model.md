@@ -1,4 +1,4 @@
-# Privacy model — Stage 2 and Stage 3
+# Privacy model — Stage 2 through Stage 4
 
 **Core product promise: your data never leaves your device.**
 
@@ -118,6 +118,28 @@ nothing to redact there beyond the real filesystem paths themselves -
 `brute library export` replaces both `current_path` and
 `original_import_path` with the placeholder `<LOCAL_MODEL_PATH>` before
 writing anything.
+
+## Stage 4: the desktop app changes none of the above
+
+The Tauri desktop shell is a UI over the exact same engine and the exact
+same `%LOCALAPPDATA%\BruteRuntime\` local state - it does not introduce
+a second storage location, a settings-sync mechanism, or any new
+persistent state beyond two small, inert, local-only additions:
+
+- `localStorage` (inside the webview, never sent anywhere) for two pure
+  UI preferences: the selected language (`brute.language`) and the
+  configured llama.cpp binary directory (`brute.llamaBinPath`) - both
+  device-local browser storage, not part of the engine's state, not
+  exported, and cleared by "Reset local state" in Settings.
+- In-memory only (cleared on app restart): which model/profile is
+  currently selected, for the status bar and Run workspace
+  (`lib/AppStatusContext.tsx`) - never written to disk at all.
+
+No Tauri plugin with network capability (updater, HTTP client, etc.) is
+a dependency of `desktop/src-tauri/Cargo.toml`. The desktop app has
+exactly the same "nothing to disable because nothing can connect"
+property Stage 0-3 established for the CLI - see `docs/security-model.md`
+"Stage 4: Tauri desktop security boundary" for the IPC-layer analysis.
 
 ## Residual honesty notes
 

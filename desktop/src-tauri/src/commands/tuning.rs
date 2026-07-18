@@ -33,7 +33,7 @@ pub struct TunePlanDto {
 /// Builds the candidate plan and shows the verified-GPU-backend decision,
 /// without launching any benchmark. Spec section 11's mandatory dry-run
 /// preview before a real tuning run.
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn tune_dry_run(
     model: String,
     llama_bin: String,
@@ -91,7 +91,7 @@ pub struct TuneRunDto {
 /// verification (not mere driver detection) proved the GPU backend
 /// actually works first.
 #[allow(clippy::too_many_arguments)]
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn tune_run(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -291,7 +291,7 @@ fn run_tuning_blocking(
 
 /// Requests cancellation of the currently running tuning session, if
 /// any. A no-op (not an error) when no tuning run is active.
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn tune_cancel(state: State<'_, AppState>) -> Result<(), String> {
     let guard = state
         .tune_cancel
@@ -301,4 +301,34 @@ pub fn tune_cancel(state: State<'_, AppState>) -> Result<(), String> {
         request_cancel(flag);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A dry-run preview never launches a process, so a bad model path
+    /// must fail during the model-inspection step and never reach
+    /// candidate generation or panic.
+    #[test]
+    fn tune_dry_run_rejects_a_nonexistent_model_path() {
+        let result = tune_dry_run(
+            "C:\\this\\path\\does\\not\\exist.gguf".to_string(),
+            "C:\\also\\does\\not\\exist".to_string(),
+            None,
+            true,
+        );
+        assert!(result.is_err());
+    }
+
+    /// A fresh `AppState` has no active tuning session - `tune_cancel`'s
+    /// no-op branch (guard is `None`) is exactly this state, so the
+    /// frontend can call it defensively without first checking whether a
+    /// run is active.
+    #[test]
+    fn app_state_has_no_active_tuning_session_before_any_run_starts() {
+        let state = AppState::default();
+        let flag_before = state.tune_cancel.lock().unwrap().clone();
+        assert!(flag_before.is_none());
+    }
 }
