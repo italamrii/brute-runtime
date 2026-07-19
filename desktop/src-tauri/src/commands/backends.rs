@@ -19,8 +19,35 @@ fn now_rfc3339() -> String {
 /// directory. Never reports a backend verified on driver/library
 /// presence alone - only a real short benchmark that actually reports
 /// GPU use counts.
+///
+/// Runs on a blocking worker thread, not the IPC/UI thread: this
+/// launches real `llama-bench` subprocesses and can legitimately take
+/// several seconds per backend - a synchronous Tauri command here would
+/// freeze the whole window for that entire time (a real, previously
+/// observed "Not Responding" symptom). See
+/// `docs/architecture.md`'s "Stage 4 responsiveness" note.
 #[tauri::command(rename_all = "snake_case")]
-pub fn backends_verify(
+pub async fn backends_verify(
+    model: String,
+    llama_bin: String,
+    backend: Option<Backend>,
+    allow_unverified_binary: bool,
+    timeout_secs: u64,
+) -> Result<Vec<BackendVerification>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        backends_verify_impl(
+            model,
+            llama_bin,
+            backend,
+            allow_unverified_binary,
+            timeout_secs,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn backends_verify_impl(
     model: String,
     llama_bin: String,
     backend: Option<Backend>,
@@ -62,7 +89,7 @@ mod tests {
     /// unvalidated path.
     #[test]
     fn backends_verify_degrades_gracefully_with_no_real_binary_or_model() {
-        let result = backends_verify(
+        let result = backends_verify_impl(
             "C:\\this\\model\\does\\not\\exist.gguf".to_string(),
             "C:\\this\\binary\\dir\\does\\not\\exist".to_string(),
             None,
@@ -83,7 +110,7 @@ mod tests {
 
     #[test]
     fn backends_verify_checks_only_the_requested_backend_when_one_is_pinned() {
-        let result = backends_verify(
+        let result = backends_verify_impl(
             "C:\\this\\model\\does\\not\\exist.gguf".to_string(),
             "C:\\this\\binary\\dir\\does\\not\\exist".to_string(),
             Some(Backend::Cpu),

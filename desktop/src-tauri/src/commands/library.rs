@@ -3,6 +3,18 @@
 //! re-validated by the underlying `brute::library`/`brute::security`
 //! functions exactly as the CLI does - never trusted just because it
 //! arrived over IPC. See docs/tauri-security-boundary.md.
+//!
+//! Every command here runs its real work on a blocking worker thread via
+//! `tauri::async_runtime::spawn_blocking`, never directly on the thread
+//! that dispatches IPC messages. Import/scan/verify/audit all do real
+//! disk I/O, hashing, and GGUF parsing that can legitimately take
+//! seconds on a large model or a large library - a synchronous Tauri
+//! command doing that work directly would freeze the whole window for
+//! that entire time (a real, previously observed "Not Responding"
+//! symptom). See `docs/architecture.md`'s "Stage 4 responsiveness" note.
+//! Each command is a thin `async fn` wrapper around a private, plain
+//! `_impl` function so the existing synchronous unit tests below need no
+//! async test runtime.
 
 use crate::paths;
 use brute::library::audit::AuditReport;
@@ -36,13 +48,31 @@ fn try_load_calibration(app: &AppHandle) -> brute::calibration::CalibrationStore
     brute::calibration::CalibrationStore::load(&paths::calibration_path(app)).unwrap_or_default()
 }
 
+async fn off_thread<T, F>(f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[tauri::command(rename_all = "snake_case")]
-pub fn library_list() -> Result<Vec<LibraryEntry>, String> {
+pub async fn library_list() -> Result<Vec<LibraryEntry>, String> {
+    off_thread(library_list_impl).await
+}
+
+fn library_list_impl() -> Result<Vec<LibraryEntry>, String> {
     Ok(load_store()?.entries)
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn library_show(library_id: String) -> Result<LibraryEntry, String> {
+pub async fn library_show(library_id: String) -> Result<LibraryEntry, String> {
+    off_thread(move || library_show_impl(library_id)).await
+}
+
+fn library_show_impl(library_id: String) -> Result<LibraryEntry, String> {
     let store = load_store()?;
     store
         .require(&library_id)
@@ -57,7 +87,17 @@ pub struct AssociationsDto {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn library_associations(app: AppHandle, library_id: String) -> Result<AssociationsDto, String> {
+pub async fn library_associations(
+    app: AppHandle,
+    library_id: String,
+) -> Result<AssociationsDto, String> {
+    off_thread(move || library_associations_impl(&app, library_id)).await
+}
+
+fn library_associations_impl(
+    app: &AppHandle,
+    library_id: String,
+) -> Result<AssociationsDto, String> {
     let store = load_store()?;
     let entry = store.require(&library_id).map_err(|e| e.to_string())?;
 
@@ -65,7 +105,7 @@ pub fn library_associations(app: AppHandle, library_id: String) -> Result<Associ
     let runtime_profiles =
         brute::library::associations::find_runtime_profiles_for(&entry.sha256, &profiles_dir);
 
-    let calibration_store = try_load_calibration(&app);
+    let calibration_store = try_load_calibration(app);
     let calibration_record_count =
         brute::library::associations::find_calibration_matches_for(&calibration_store, entry).len();
 
@@ -76,13 +116,21 @@ pub fn library_associations(app: AppHandle, library_id: String) -> Result<Associ
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn library_import(
+pub async fn library_import(
     app: AppHandle,
     path: String,
     alias: Option<String>,
 ) -> Result<ImportOutcome, String> {
+    off_thread(move || library_import_impl(&app, path, alias)).await
+}
+
+fn library_import_impl(
+    app: &AppHandle,
+    path: String,
+    alias: Option<String>,
+) -> Result<ImportOutcome, String> {
     let mut store = load_store()?;
-    let catalog = try_load_catalog(&app);
+    let catalog = try_load_catalog(app);
     let outcome =
         library::import::import_model(Path::new(&path), alias, &mut store, catalog.as_ref())
             .map_err(|e| e.to_string())?;
@@ -122,19 +170,31 @@ fn build_scan_options(dto: &ScanOptionsDto) -> ScanOptions {
 /// Dry discovery only - never imports anything. Matches
 /// `brute library scan`'s default behavior exactly.
 #[tauri::command(rename_all = "snake_case")]
-pub fn library_scan(root: String, options: ScanOptionsDto) -> Result<ScanResult, String> {
+pub async fn library_scan(root: String, options: ScanOptionsDto) -> Result<ScanResult, String> {
+    off_thread(move || library_scan_impl(root, options)).await
+}
+
+fn library_scan_impl(root: String, options: ScanOptionsDto) -> Result<ScanResult, String> {
     let scan_options = build_scan_options(&options);
     library::scan::scan(Path::new(&root), &scan_options, || false).map_err(|e| e.to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn library_import_directory(
+pub async fn library_import_directory(
     app: AppHandle,
     root: String,
     options: ScanOptionsDto,
 ) -> Result<ImportDirectoryOutcome, String> {
+    off_thread(move || library_import_directory_impl(&app, root, options)).await
+}
+
+fn library_import_directory_impl(
+    app: &AppHandle,
+    root: String,
+    options: ScanOptionsDto,
+) -> Result<ImportDirectoryOutcome, String> {
     let mut store = load_store()?;
-    let catalog = try_load_catalog(&app);
+    let catalog = try_load_catalog(app);
     let scan_options = build_scan_options(&options);
     let outcome = library::import::import_directory(
         Path::new(&root),
@@ -156,7 +216,14 @@ pub struct VerifyOutcomeDto {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn library_verify(
+pub async fn library_verify(
+    library_id: Option<String>,
+    all: bool,
+) -> Result<Vec<VerifyOutcomeDto>, String> {
+    off_thread(move || library_verify_impl(library_id, all)).await
+}
+
+fn library_verify_impl(
     library_id: Option<String>,
     all: bool,
 ) -> Result<Vec<VerifyOutcomeDto>, String> {
@@ -206,7 +273,14 @@ pub struct RefreshOutcomeDto {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn library_refresh(
+pub async fn library_refresh(
+    library_id: Option<String>,
+    all: bool,
+) -> Result<Vec<RefreshOutcomeDto>, String> {
+    off_thread(move || library_refresh_impl(library_id, all)).await
+}
+
+fn library_refresh_impl(
     library_id: Option<String>,
     all: bool,
 ) -> Result<Vec<RefreshOutcomeDto>, String> {
@@ -236,9 +310,13 @@ pub fn library_refresh(
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn library_audit(app: AppHandle) -> Result<AuditReport, String> {
+pub async fn library_audit(app: AppHandle) -> Result<AuditReport, String> {
+    off_thread(move || library_audit_impl(&app)).await
+}
+
+fn library_audit_impl(app: &AppHandle) -> Result<AuditReport, String> {
     let store = load_store()?;
-    let calibration_store = try_load_calibration(&app);
+    let calibration_store = try_load_calibration(app);
     let profiles_dir = brute::tuning::runtime_profile::default_profiles_dir();
     Ok(library::audit::audit(
         &store,
@@ -248,17 +326,29 @@ pub fn library_audit(app: AppHandle) -> Result<AuditReport, String> {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn library_duplicates() -> Result<Vec<DuplicateGroup>, String> {
+pub async fn library_duplicates() -> Result<Vec<DuplicateGroup>, String> {
+    off_thread(library_duplicates_impl).await
+}
+
+fn library_duplicates_impl() -> Result<Vec<DuplicateGroup>, String> {
     Ok(library::duplicates::find_duplicate_groups(&load_store()?))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn library_storage() -> Result<StorageSummary, String> {
+pub async fn library_storage() -> Result<StorageSummary, String> {
+    off_thread(library_storage_impl).await
+}
+
+fn library_storage_impl() -> Result<StorageSummary, String> {
     Ok(library::storage::summarize(&load_store()?))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn library_locate(library_id: String, new_path: String) -> Result<LocateOutcome, String> {
+pub async fn library_locate(library_id: String, new_path: String) -> Result<LocateOutcome, String> {
+    off_thread(move || library_locate_impl(library_id, new_path)).await
+}
+
+fn library_locate_impl(library_id: String, new_path: String) -> Result<LocateOutcome, String> {
     let mut store = load_store()?;
     let outcome = library::verify::locate(&mut store, &library_id, Path::new(&new_path))
         .map_err(|e| e.to_string())?;
@@ -267,7 +357,11 @@ pub fn library_locate(library_id: String, new_path: String) -> Result<LocateOutc
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn library_alias(library_id: String, name: String) -> Result<(), String> {
+pub async fn library_alias(library_id: String, name: String) -> Result<(), String> {
+    off_thread(move || library_alias_impl(library_id, name)).await
+}
+
+fn library_alias_impl(library_id: String, name: String) -> Result<(), String> {
     let mut store = load_store()?;
     let entry = store
         .find_by_id_mut(&library_id)
@@ -277,7 +371,11 @@ pub fn library_alias(library_id: String, name: String) -> Result<(), String> {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn library_note(library_id: String, text: String) -> Result<(), String> {
+pub async fn library_note(library_id: String, text: String) -> Result<(), String> {
+    off_thread(move || library_note_impl(library_id, text)).await
+}
+
+fn library_note_impl(library_id: String, text: String) -> Result<(), String> {
     let mut store = load_store()?;
     let entry = store
         .find_by_id_mut(&library_id)
@@ -289,14 +387,22 @@ pub fn library_note(library_id: String, text: String) -> Result<(), String> {
 /// Removes tracking metadata only - the underlying model file is never
 /// touched. See docs/quarantine-and-recovery.md.
 #[tauri::command(rename_all = "snake_case")]
-pub fn library_forget(library_id: String) -> Result<(), String> {
+pub async fn library_forget(library_id: String) -> Result<(), String> {
+    off_thread(move || library_forget_impl(library_id)).await
+}
+
+fn library_forget_impl(library_id: String) -> Result<(), String> {
     let mut store = load_store()?;
     store.forget(&library_id).map_err(|e| e.to_string())?;
     save_store(&store)
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn library_quarantine(library_id: String, reason: String) -> Result<(), String> {
+pub async fn library_quarantine(library_id: String, reason: String) -> Result<(), String> {
+    off_thread(move || library_quarantine_impl(library_id, reason)).await
+}
+
+fn library_quarantine_impl(library_id: String, reason: String) -> Result<(), String> {
     let mut store = load_store()?;
     store
         .quarantine(&library_id, reason)
@@ -307,7 +413,11 @@ pub fn library_quarantine(library_id: String, reason: String) -> Result<(), Stri
 /// Always re-runs a full verification pass before clearing quarantine -
 /// never a bare flag flip. See docs/quarantine-and-recovery.md.
 #[tauri::command(rename_all = "snake_case")]
-pub fn library_unquarantine(library_id: String) -> Result<GgufVerification, String> {
+pub async fn library_unquarantine(library_id: String) -> Result<GgufVerification, String> {
+    off_thread(move || library_unquarantine_impl(library_id)).await
+}
+
+fn library_unquarantine_impl(library_id: String) -> Result<GgufVerification, String> {
     let mut store = load_store()?;
     let result = store.unquarantine(&library_id).map_err(|e| e.to_string());
     save_store(&store)?;
@@ -315,7 +425,11 @@ pub fn library_unquarantine(library_id: String) -> Result<GgufVerification, Stri
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn library_quarantined() -> Result<Vec<LibraryEntry>, String> {
+pub async fn library_quarantined() -> Result<Vec<LibraryEntry>, String> {
+    off_thread(library_quarantined_impl).await
+}
+
+fn library_quarantined_impl() -> Result<Vec<LibraryEntry>, String> {
     Ok(load_store()?
         .entries
         .into_iter()
@@ -327,7 +441,11 @@ pub fn library_quarantined() -> Result<Vec<LibraryEntry>, String> {
 /// (`library::sanitize_entry_for_export`) - no local paths, no machine
 /// identifiers. Returns the number of entries written.
 #[tauri::command(rename_all = "snake_case")]
-pub fn library_export(output_path: String) -> Result<usize, String> {
+pub async fn library_export(output_path: String) -> Result<usize, String> {
+    off_thread(move || library_export_impl(output_path)).await
+}
+
+fn library_export_impl(output_path: String) -> Result<usize, String> {
     let store = load_store()?;
     let sanitized: Vec<LibraryEntry> = store
         .entries
@@ -359,7 +477,7 @@ mod tests {
     /// guaranteed to still exist.
     #[test]
     fn library_scan_rejects_a_nonexistent_root_without_panicking() {
-        let result = library_scan(
+        let result = library_scan_impl(
             "C:\\this\\path\\does\\not\\exist\\brute-test".to_string(),
             default_scan_options(),
         );
@@ -374,7 +492,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("brute-desktop-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
 
-        let result = library_scan(dir.display().to_string(), default_scan_options());
+        let result = library_scan_impl(dir.display().to_string(), default_scan_options());
 
         std::fs::remove_dir_all(&dir).ok();
 
@@ -399,7 +517,7 @@ mod tests {
             return;
         }
 
-        let entries = library_list().expect("the real local library index must load");
+        let entries = library_list_impl().expect("the real local library index must load");
         let real_entry = entries
             .iter()
             .find(|e| e.sha256 == KNOWN_SHA256)

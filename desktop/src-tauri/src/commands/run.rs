@@ -15,11 +15,43 @@ use brute::runtime::process::TickAction;
 use brute::tuning::runtime_profile;
 use serde::Serialize;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, State};
 
 const LOCAL_RUN_GEN_TOKENS: u32 = 512;
 const LOCAL_RUN_TIMEOUT_SECS: u64 = 300;
+
+/// The run-workspace phase model (spec: "required run states"). Every
+/// transition below is driven by a genuine engine signal - never a timer
+/// or an animation:
+/// - `Preparing`: resolving the library entry + saved profile (local,
+///   no process yet).
+/// - `ValidatingRuntime`: `verify_llama_binary` running for real against
+///   the configured binary directory.
+/// - `LoadingModel`: the binary validated; `llama-cli` is being spawned
+///   and has not yet produced its first byte of output.
+/// - `Generating`: the first stdout chunk has arrived.
+/// - `Stopping`: cancellation was requested and the process is being
+///   killed/reaped.
+/// - `Completed` / `Failed` / `Cancelled`: terminal, matches
+///   `LocalRunOutcome`.
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunPhase {
+    Preparing,
+    ValidatingRuntime,
+    LoadingModel,
+    Generating,
+    Stopping,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+fn emit_phase(app: &AppHandle, phase: RunPhase) {
+    let _ = app.emit("local-run-phase", phase);
+}
 
 #[derive(Serialize)]
 pub struct LocalRunOutcome {
@@ -90,6 +122,8 @@ fn generate_blocking(
     allow_unverified_binary: bool,
     cancel_flag: &CancelFlag,
 ) -> Result<LocalRunOutcome, String> {
+    emit_phase(app, RunPhase::Preparing);
+
     let store = LibraryStore::load_from(&brute::library::default_index_path())
         .map_err(|e| e.to_string())?;
     let model_path = store
@@ -115,9 +149,38 @@ fn generate_blocking(
         timeout_secs: LOCAL_RUN_TIMEOUT_SECS,
     };
 
+    // A real validation pass against the exact binary that will be
+    // launched - not a label, an actual hash check with an actual
+    // failure mode, run before anything is spawned. `run_cli_streaming`
+    // below re-validates internally too (its own safety invariant,
+    // unconditional regardless of caller) - the cost is one cheap hash
+    // read, not a second process launch.
+    emit_phase(app, RunPhase::ValidatingRuntime);
+    if let Err(e) = llama_cpp::verify_llama_binary(
+        &llama_cpp::llama_cli_path(&config.binary_dir),
+        allow_unverified_binary,
+    ) {
+        emit_phase(app, RunPhase::Failed);
+        return Ok(LocalRunOutcome {
+            succeeded: false,
+            timed_out: false,
+            cancelled: false,
+            generation_tokens_per_second: None,
+            prompt_tokens_per_second: None,
+            elapsed_secs: 0.0,
+            error: Some(e.to_string()),
+        });
+    }
+
+    emit_phase(app, RunPhase::LoadingModel);
+
     let app_for_stream = app.clone();
     let leftover: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+    let generating_announced = Arc::new(AtomicBool::new(false));
     let on_chunk = move |bytes: &[u8]| {
+        if !generating_announced.swap(true, Ordering::SeqCst) {
+            emit_phase(&app_for_stream, RunPhase::Generating);
+        }
         let Ok(mut buf) = leftover.lock() else {
             return;
         };
@@ -128,6 +191,8 @@ fn generate_blocking(
     };
 
     let flag_for_tick = cancel_flag.clone();
+    let app_for_tick = app.clone();
+    let stopping_announced = AtomicBool::new(false);
     let start = std::time::Instant::now();
     let result = llama_cpp::run_cli_streaming(
         &config.binary_dir,
@@ -137,6 +202,9 @@ fn generate_blocking(
         allow_unverified_binary,
         move |_| {
             if is_cancelled(&flag_for_tick) {
+                if !stopping_announced.swap(true, Ordering::SeqCst) {
+                    emit_phase(&app_for_tick, RunPhase::Stopping);
+                }
                 TickAction::Cancel
             } else {
                 TickAction::Continue
@@ -147,24 +215,47 @@ fn generate_blocking(
     let elapsed_secs = start.elapsed().as_secs_f64();
 
     Ok(match result {
-        Ok((metrics, run)) => LocalRunOutcome {
-            succeeded: run.succeeded(),
-            timed_out: run.timed_out,
-            cancelled: run.cancelled,
-            generation_tokens_per_second: metrics.eval_tokens_per_second,
-            prompt_tokens_per_second: metrics.prompt_eval_tokens_per_second,
-            elapsed_secs,
-            error: None,
-        },
-        Err(e) => LocalRunOutcome {
-            succeeded: false,
-            timed_out: false,
-            cancelled: is_cancelled(cancel_flag),
-            generation_tokens_per_second: None,
-            prompt_tokens_per_second: None,
-            elapsed_secs,
-            error: Some(e.to_string()),
-        },
+        Ok((metrics, run)) => {
+            emit_phase(
+                app,
+                if run.cancelled {
+                    RunPhase::Cancelled
+                } else if run.succeeded() {
+                    RunPhase::Completed
+                } else {
+                    RunPhase::Failed
+                },
+            );
+            LocalRunOutcome {
+                succeeded: run.succeeded(),
+                timed_out: run.timed_out,
+                cancelled: run.cancelled,
+                generation_tokens_per_second: metrics.eval_tokens_per_second,
+                prompt_tokens_per_second: metrics.prompt_eval_tokens_per_second,
+                elapsed_secs,
+                error: None,
+            }
+        }
+        Err(e) => {
+            let cancelled = is_cancelled(cancel_flag);
+            emit_phase(
+                app,
+                if cancelled {
+                    RunPhase::Cancelled
+                } else {
+                    RunPhase::Failed
+                },
+            );
+            LocalRunOutcome {
+                succeeded: false,
+                timed_out: false,
+                cancelled,
+                generation_tokens_per_second: None,
+                prompt_tokens_per_second: None,
+                elapsed_secs,
+                error: Some(e.to_string()),
+            }
+        }
     })
 }
 

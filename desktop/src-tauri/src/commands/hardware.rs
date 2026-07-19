@@ -17,14 +17,24 @@ fn now_rfc3339() -> String {
 /// (measured/detected/inferred/unavailable) for every value, and a real
 /// `calibration_record_count` for this machine. Never a fabricated
 /// universal score.
+///
+/// Runs on a blocking worker thread, not the IPC/UI thread: hardware
+/// inspection shells out to `nvidia-smi` and reads several Win32 APIs
+/// that are not guaranteed to return instantly (a slow/hung driver call
+/// must not freeze the window). See `docs/architecture.md`'s "Stage 4
+/// responsiveness" note.
 #[tauri::command(rename_all = "snake_case")]
-pub fn hardware_profile(app: AppHandle) -> Result<HardwareCapabilityProfile, String> {
-    let hw = brute::hardware::inspect(None);
-    let calibration_store =
-        CalibrationStore::load(&paths::calibration_path(&app)).unwrap_or_default();
-    Ok(brute::profile::build_profile_for_machine(
-        &hw,
-        now_rfc3339(),
-        &calibration_store,
-    ))
+pub async fn hardware_profile(app: AppHandle) -> Result<HardwareCapabilityProfile, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let hw = brute::hardware::inspect(None);
+        let calibration_store =
+            CalibrationStore::load(&paths::calibration_path(&app)).unwrap_or_default();
+        Ok(brute::profile::build_profile_for_machine(
+            &hw,
+            now_rfc3339(),
+            &calibration_store,
+        ))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

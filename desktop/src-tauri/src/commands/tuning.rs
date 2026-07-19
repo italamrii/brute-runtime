@@ -33,8 +33,26 @@ pub struct TunePlanDto {
 /// Builds the candidate plan and shows the verified-GPU-backend decision,
 /// without launching any benchmark. Spec section 11's mandatory dry-run
 /// preview before a real tuning run.
+///
+/// Runs on a blocking worker thread, not the IPC/UI thread: despite
+/// never launching a benchmark, this still calls
+/// `determine_verified_gpu_backend`, which launches real short
+/// verification subprocesses for CUDA/Vulkan - not instant.
 #[tauri::command(rename_all = "snake_case")]
-pub fn tune_dry_run(
+pub async fn tune_dry_run(
+    model: String,
+    llama_bin: String,
+    backend: Option<Backend>,
+    allow_unverified_binary: bool,
+) -> Result<TunePlanDto, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tune_dry_run_impl(model, llama_bin, backend, allow_unverified_binary)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn tune_dry_run_impl(
     model: String,
     llama_bin: String,
     backend: Option<Backend>,
@@ -312,7 +330,7 @@ mod tests {
     /// candidate generation or panic.
     #[test]
     fn tune_dry_run_rejects_a_nonexistent_model_path() {
-        let result = tune_dry_run(
+        let result = tune_dry_run_impl(
             "C:\\this\\path\\does\\not\\exist.gguf".to_string(),
             "C:\\also\\does\\not\\exist".to_string(),
             None,

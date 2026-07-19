@@ -3,6 +3,12 @@
 //! `tuning::apply::apply_and_verify` (spec section 12) - never a bare
 //! flag flip. Export always sanitizes `machine_id` before it touches
 //! disk.
+//!
+//! Every command runs on a blocking worker thread
+//! (`tauri::async_runtime::spawn_blocking`), never directly on the IPC
+//! thread - `profiles_verify` in particular launches a real llama.cpp
+//! subprocess and must not freeze the window while it runs. See
+//! `docs/architecture.md`'s "Stage 4 responsiveness" note.
 
 use brute::models;
 use brute::profile::HardwareCapabilityProfile;
@@ -21,14 +27,32 @@ fn binary_hash(path: &Path, allow_unverified_binary: bool) -> Option<String> {
         .map(|c| c.sha256)
 }
 
+async fn off_thread<T, F>(f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[tauri::command(rename_all = "snake_case")]
-pub fn profiles_list() -> Result<Vec<String>, String> {
+pub async fn profiles_list() -> Result<Vec<String>, String> {
+    off_thread(profiles_list_impl).await
+}
+
+fn profiles_list_impl() -> Result<Vec<String>, String> {
     runtime_profile::list_profile_ids_in(&runtime_profile::default_profiles_dir())
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn profiles_show(profile_id: String) -> Result<RuntimeProfile, String> {
+pub async fn profiles_show(profile_id: String) -> Result<RuntimeProfile, String> {
+    off_thread(move || profiles_show_impl(profile_id)).await
+}
+
+fn profiles_show_impl(profile_id: String) -> Result<RuntimeProfile, String> {
     runtime_profile::load_profile_from(&runtime_profile::default_profiles_dir(), &profile_id)
         .map_err(|e| e.to_string())
 }
@@ -37,7 +61,26 @@ pub fn profiles_show(profile_id: String) -> Result<RuntimeProfile, String> {
 /// settings still actually work on this machine/model/binaries - never
 /// a cached or assumed result.
 #[tauri::command(rename_all = "snake_case")]
-pub fn profiles_verify(
+pub async fn profiles_verify(
+    profile_id: String,
+    model: String,
+    llama_bin: String,
+    allow_unverified_binary: bool,
+    timeout_secs: u64,
+) -> Result<ApplyResult, String> {
+    off_thread(move || {
+        profiles_verify_impl(
+            profile_id,
+            model,
+            llama_bin,
+            allow_unverified_binary,
+            timeout_secs,
+        )
+    })
+    .await
+}
+
+fn profiles_verify_impl(
     profile_id: String,
     model: String,
     llama_bin: String,
@@ -78,7 +121,11 @@ pub fn profiles_verify(
 /// Writes a sanitized (machine ID redacted) copy of the profile to
 /// `output_path`. Never includes a username or local path.
 #[tauri::command(rename_all = "snake_case")]
-pub fn profiles_export(profile_id: String, output_path: String) -> Result<(), String> {
+pub async fn profiles_export(profile_id: String, output_path: String) -> Result<(), String> {
+    off_thread(move || profiles_export_impl(profile_id, output_path)).await
+}
+
+fn profiles_export_impl(profile_id: String, output_path: String) -> Result<(), String> {
     let profile =
         runtime_profile::load_profile_from(&runtime_profile::default_profiles_dir(), &profile_id)
             .map_err(|e| e.to_string())?;
@@ -90,7 +137,11 @@ pub fn profiles_export(profile_id: String, output_path: String) -> Result<(), St
 /// Deletes only the local profile metadata file - the model and any
 /// runtime binary are never touched.
 #[tauri::command(rename_all = "snake_case")]
-pub fn profiles_delete(profile_id: String) -> Result<(), String> {
+pub async fn profiles_delete(profile_id: String) -> Result<(), String> {
+    off_thread(move || profiles_delete_impl(profile_id)).await
+}
+
+fn profiles_delete_impl(profile_id: String) -> Result<(), String> {
     runtime_profile::delete_profile_from(&runtime_profile::default_profiles_dir(), &profile_id)
         .map_err(|e| e.to_string())
 }
@@ -106,7 +157,7 @@ mod tests {
     /// originate from a stale frontend cache.
     #[test]
     fn profiles_show_rejects_an_unknown_profile_id() {
-        let result = profiles_show(NONEXISTENT_PROFILE_ID.to_string());
+        let result = profiles_show_impl(NONEXISTENT_PROFILE_ID.to_string());
         assert!(result.is_err());
     }
 
@@ -116,7 +167,7 @@ mod tests {
     /// `profiles_delete` above).
     #[test]
     fn profiles_delete_rejects_an_unknown_profile_id_without_panicking() {
-        let result = profiles_delete(NONEXISTENT_PROFILE_ID.to_string());
+        let result = profiles_delete_impl(NONEXISTENT_PROFILE_ID.to_string());
         assert!(result.is_err());
     }
 
@@ -134,8 +185,8 @@ mod tests {
             return;
         }
 
-        let profile =
-            profiles_show(KNOWN_PROFILE_ID.to_string()).expect("the real saved profile must load");
+        let profile = profiles_show_impl(KNOWN_PROFILE_ID.to_string())
+            .expect("the real saved profile must load");
         assert_eq!(profile.profile_id, KNOWN_PROFILE_ID);
         assert_eq!(
             profile.model_sha256.len(),

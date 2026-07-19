@@ -117,12 +117,138 @@ tuning).
   and translated string content) but not by visual inspection** for the
   same screen-capture-tooling reason as above.
 
+## Visual redesign closure pass (post–Stage 4 MVP)
+
+A subsequent session preserved Claude’s unfinished `tokens.css` /
+`global.css` redesign and finished wiring every page to that premium
+near-black / charcoal / deep-red systems console language.
+
+### Verified in the redesign session
+
+1. **Frontend suite green:** `npm test` 20/20, `npm run lint` 0 errors
+   (same 2 `react-refresh` warnings), `npm run build` (`tsc && vite
+   build`) clean.
+2. **Core engine unchanged and green:** root `cargo test` 301/301,
+   `cargo fmt --check` clean, `cargo clippy --all-targets -- -D warnings`
+   clean.
+3. **Desktop crate green:** `desktop/src-tauri` `cargo test --tests`
+   17/17, `cargo fmt --check` clean, `cargo clippy --all-targets -- -D
+   warnings` clean.
+4. **Privacy/network scan of frontend and desktop Rust sources:** no
+   `fetch` / `axios` / WebSocket / analytics / crash-reporting SDKs.
+   Official catalog URLs remain inert metadata strings only.
+5. **Forget wording remains honest:** Models inspector button is
+   “Remove from library”; helper text states the model file remains on
+   disk (frontend test covers this).
+
+### Packaging / interactive workflow
+
+Production packaging (`npm run tauri build`) and a full interactive
+click-through (including Arabic visual inspection and real Qwen local
+run) may be re-confirmed in the same session after the build finishes —
+checksums and installer paths will be recorded in
+`docs/windows-packaging.md` when artifacts are on disk.
+
+## Responsiveness pass: async command execution (post-redesign)
+
+A real, previously reported symptom - the installed Windows build
+becoming "Not Responding" - was root-caused and fixed in this session.
+
+**Root cause**: Tauri v2 dispatches `#[tauri::command]` handlers on the
+same thread that receives WebView2 IPC messages. A plain (non-`async`)
+command that does real work - subprocess launches, file hashing, GGUF
+parsing - blocks that thread for the full duration, freezing the window.
+This is Tauri's own documented behavior, not a bug in Tauri itself.
+
+**Fix**: every command that does disk I/O, hashing, GGUF parsing, or
+launches a subprocess was converted to `async fn`, with the real work
+moved onto a blocking worker thread via
+`tauri::async_runtime::spawn_blocking`. Converted: all of
+`commands/library.rs` (14 commands - import, scan, import_directory,
+verify, refresh, audit, locate, alias, note, forget, quarantine,
+unquarantine, quarantined, export, list, show, associations, duplicates,
+storage), all of `commands/catalog.rs` (catalog_list/show,
+calibrations_list, fit_evaluate, recommend_model, explain_fit - these
+call `hardware::inspect`, which itself shells out to `nvidia-smi`),
+`commands/hardware.rs::hardware_profile`, `commands/backends.rs::backends_verify`,
+`commands/profiles.rs` (list/show/verify/export/delete), and
+`commands/tuning.rs::tune_dry_run` (it calls
+`determine_verified_gpu_backend`, which launches real short verification
+subprocesses even in a "dry run"). `tune_run` and `local_run_generate`
+were already async from the original Stage 4 build. Every command keeps
+a thin `async fn` wrapper around a private, plain `_impl` function
+specifically so the existing synchronous unit tests need no async test
+runtime - no test coverage was lost or weakened by this refactor.
+
+**Why this is safe for the frontend**: `invoke()` on the TypeScript side
+always returns a `Promise` regardless of whether the underlying Rust
+command is `fn` or `async fn` - this change is invisible to
+`lib/api.ts` and every page that calls it. No frontend code changed as
+a result of this fix.
+
+**Verified**: 17/17 desktop Rust tests still pass, `cargo fmt --check`
+and `cargo clippy --all-targets -- -D warnings` clean on the desktop
+crate, root engine untouched and still 301/301 green, and a fresh
+`cargo tauri dev` launch succeeded and stayed running (confirmed via
+`tasklist`) with the new async code compiled in.
+
+## Real run-state model (post-redesign)
+
+The Run workspace's status display previously derived a coarse
+idle/active/stopped/failed/complete label purely from `running`/`outcome`
+booleans - no visibility into what was actually happening during a run.
+This session added a `RunPhase` enum
+(`commands/run.rs`) with the specific phases required for a serious
+local-inference control workspace: `Preparing` → `ValidatingRuntime` →
+`LoadingModel` → `Generating` → `Stopping` → `Completed`/`Failed`/`Cancelled`.
+Every transition is driven by a genuine engine signal, never a timer:
+`ValidatingRuntime` runs a real `verify_llama_binary` hash check (with a
+real, distinct failure path if it fails, before anything is spawned);
+`Generating` fires the moment the first real stdout byte arrives from
+the child process; `Stopping` fires the moment cancellation is actually
+observed inside the process-polling tick closure. Phases are pushed to
+the frontend via a new `"local-run-phase"` window event, mirrored in
+`lib/types.ts`'s `RunPhase` union, and drive `Run.tsx`'s status badge
+directly (falling back to the old outcome-derived label only before the
+first phase event of a run has arrived). The Run page was also given
+explicit "Runtime binary" and "Memory estimate" rows, closing two gaps
+against the required Run-page field list (selected model, selected
+profile, runtime binary, backend, threads, GPU layers, context, batch,
+memory estimate, measured throughput, run state, output stream, Stop,
+failure recovery - all now present).
+
+## Fresh privacy/network audit (post-redesign)
+
+Re-ran the network/telemetry grep sweep across `desktop/src`,
+`desktop/src-tauri/src`, and `src` after all of the above changes:
+`fetch`, `axios`, `XMLHttpRequest`, `WebSocket`, `telemetry`,
+`analytics`, `tracking`, `crash report`, `remote log`, `upload`,
+`cloud`, hidden update checks. Every match was either UI copy stating
+the no-upload/no-telemetry/no-cloud guarantee, a CSS class name
+(`telemetry-strip`/`telemetry-item` - the Run page's live-metrics
+tiles, an unrelated naming coincidence, not actual telemetry), or a doc
+comment describing the same privacy guarantee. Confirmed zero network
+crates in either `Cargo.toml` (root or desktop), zero analytics/CDN
+packages in `desktop/package.json`, and no external URLs in
+`index.html`/`vite.config.ts` beyond a single doc-comment link.
+
 ## Honest summary
 
 The desktop application builds, links, tests, and launches cleanly
 end-to-end on real hardware, and its command layer has been proven
 correct against this machine's real imported model and real saved
-tuning profile - not synthetic data. What remains for full production
-sign-off is a human (or future tooled session) actually clicking through
-every workflow and capturing screenshots, which this session's toolset
-cannot perform itself.
+tuning profile - not synthetic data. The visual redesign closes the
+sparse Stage 4 card layout into a dense systems-console UI while
+preserving all real engine metrics. A real UI-freeze root cause
+(synchronous Tauri commands blocking the IPC/WebView2 thread) was found
+and fixed by converting every I/O- or subprocess-touching command to
+run on a blocking worker thread, and the Run workspace now surfaces a
+genuine multi-phase execution state instead of a coarse
+idle/active/done label. What remains for full production sign-off is a
+human (or future tooled session) actually clicking through every
+workflow and capturing screenshots, which this session's toolset cannot
+perform itself. Cross-platform (macOS/Linux) support was explicitly
+scoped out of this MVP by prior user instruction in this same
+conversation and was not attempted here - see the end-of-turn note for
+why that instruction now appears to conflict with a later request and
+needs the user's explicit direction before any code changes begin.
