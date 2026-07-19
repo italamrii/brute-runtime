@@ -2,16 +2,26 @@ import type { ReactNode } from "react";
 import { useI18n } from "../i18n/I18nContext";
 import { useAppStatus } from "../lib/AppStatusContext";
 import type { Page } from "../App";
+import {
+  IconHardware,
+  IconHealth,
+  IconModels,
+  IconOptimize,
+  IconOverview,
+  IconProfiles,
+  IconRun,
+  IconSettings,
+} from "./Icons";
 
-const NAV_ITEMS: { page: Page; key: string }[] = [
-  { page: "overview", key: "nav_overview" },
-  { page: "hardware", key: "nav_hardware" },
-  { page: "models", key: "nav_models" },
-  { page: "optimize", key: "nav_optimize" },
-  { page: "run", key: "nav_run" },
-  { page: "profiles", key: "nav_profiles" },
-  { page: "health", key: "nav_health" },
-  { page: "settings", key: "nav_settings" },
+const NAV_ITEMS: { page: Page; key: string; Icon: typeof IconOverview }[] = [
+  { page: "overview", key: "nav_overview", Icon: IconOverview },
+  { page: "hardware", key: "nav_hardware", Icon: IconHardware },
+  { page: "models", key: "nav_models", Icon: IconModels },
+  { page: "optimize", key: "nav_optimize", Icon: IconOptimize },
+  { page: "run", key: "nav_run", Icon: IconRun },
+  { page: "profiles", key: "nav_profiles", Icon: IconProfiles },
+  { page: "health", key: "nav_health", Icon: IconHealth },
+  { page: "settings", key: "nav_settings", Icon: IconSettings },
 ];
 
 export function Shell({
@@ -30,9 +40,19 @@ export function Shell({
     <div className="app-shell">
       <nav className="sidebar" aria-label={t("app_title")}>
         <div className="sidebar-brand">
-          <div className="sidebar-brand-title">{t("app_title")}</div>
+          <div className="sidebar-brand-mark">
+            <div className="sidebar-brand-glyph" aria-hidden="true">
+              B
+            </div>
+            <div>
+              <div className="sidebar-brand-title">BRUTE</div>
+              <div className="sidebar-brand-sub">Runtime</div>
+            </div>
+          </div>
           <div className="sidebar-brand-slogan">{t("slogan")}</div>
         </div>
+
+        <div className="nav-section-label">{t("nav_section_console")}</div>
         <ul className="nav-list">
           {NAV_ITEMS.map((item) => (
             <li key={item.page}>
@@ -42,31 +62,48 @@ export function Shell({
                 aria-current={active === item.page ? "page" : undefined}
                 onClick={() => onNavigate(item.page)}
               >
+                <span className="nav-item-icon">
+                  <item.Icon />
+                </span>
                 {t(item.key)}
               </button>
             </li>
           ))}
         </ul>
+
+        <div className="sidebar-footer">
+          <div className="sidebar-footer-row">
+            <span className="sidebar-footer-dot" aria-hidden="true" />
+            <span>{t("status_offline")}</span>
+          </div>
+          <div className="sidebar-footer-row" style={{ marginTop: 6 }}>
+            <span className="text-tertiary">v0.1.0</span>
+          </div>
+        </div>
       </nav>
 
       <main className="main-area" role="main">
         {children}
       </main>
 
-      <footer className="statusbar">
+      <footer className="statusbar" aria-label={t("status_bar_label")}>
         <span className="statusbar-item">
           <span className="statusbar-dot" aria-hidden="true" />
-          {t("status_offline")}
+          <strong>{t("status_offline")}</strong>
         </span>
+        <span className="statusbar-sep" aria-hidden="true" />
         <span className="statusbar-item">{t("status_no_network")}</span>
+        <span className="statusbar-sep" aria-hidden="true" />
         <span className="statusbar-item">
-          {t("status_active_model")}: {status.libraryLabel ?? t("status_none")}
+          {t("status_active_model")}: <strong>{status.libraryLabel ?? t("status_none")}</strong>
         </span>
+        <span className="statusbar-sep" aria-hidden="true" />
         <span className="statusbar-item">
-          {t("status_active_profile")}: {status.profileId ?? t("status_none")}
+          {t("status_active_profile")}: <strong>{status.profileId ?? t("status_none")}</strong>
         </span>
+        <span className="statusbar-sep" aria-hidden="true" />
         <span className="statusbar-item">
-          {t("status_backend")}: {status.backend ?? t("status_none")}
+          {t("status_backend")}: <strong>{status.backend ?? t("status_none")}</strong>
         </span>
       </footer>
     </div>

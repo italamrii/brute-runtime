@@ -77,7 +77,7 @@ describe("Models page", () => {
     const removeButton = await screen.findByText("Remove from library");
     expect(removeButton).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^delete$/i })).not.toBeInTheDocument();
-    expect(screen.getByText(/model file stays on disk/i)).toBeInTheDocument();
+    expect(screen.getByText(/model file remains on disk/i)).toBeInTheDocument();
   });
 
   it("badges a quarantined model distinctly rather than showing its trust state", async () => {

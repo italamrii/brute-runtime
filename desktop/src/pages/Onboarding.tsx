@@ -1,13 +1,10 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "../i18n/I18nContext";
 import { useAppStatus } from "../lib/AppStatusContext";
-import { importModel } from "../lib/api";
+import { importModel, scanDirectory } from "../lib/api";
 import { useState } from "react";
 
-/** First-run screen (spec section 3): one short explanation, no
- * internet/sign-in/personal info required, fully skippable. Scan/Import
- * both hand off to a real dialog + real import so a first-time user can
- * get a model into the library without visiting the Models page first. */
+/** First-run screen: one short explanation, no internet/sign-in, fully skippable. */
 export function Onboarding({ onDone }: { onDone: () => void }) {
   const { t, lang, setLang } = useI18n();
   const status = useAppStatus();
@@ -34,21 +31,52 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     }
   }
 
-  return (
-    <div className="page" style={{ maxWidth: 560, margin: "10vh auto" }}>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-        <select
-          aria-label={t("settings_language")}
-          value={lang}
-          onChange={(e) => setLang(e.target.value as "en" | "ar")}
-          style={{ background: "var(--bg-panel)", color: "var(--text-primary)", border: "1px solid var(--border-strong)" }}
-        >
-          <option value="en">English</option>
-          <option value="ar">العربية</option>
-        </select>
-      </div>
+  async function handleScan() {
+    setError(null);
+    setBusy(true);
+    try {
+      const dir = await open({ directory: true, multiple: false });
+      if (typeof dir === "string") {
+        await scanDirectory(dir, { recursive: true, max_depth: 8, max_files: 5000 });
+      }
+      onDone();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
-      <div className="panel">
+  return (
+    <div className="onboarding-shell">
+      <div className="onboarding-card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, gap: 12 }}>
+          <div className="sidebar-brand-mark">
+            <div className="sidebar-brand-glyph" aria-hidden="true">
+              B
+            </div>
+            <div>
+              <div className="sidebar-brand-title">BRUTE</div>
+              <div className="sidebar-brand-sub">Runtime</div>
+            </div>
+          </div>
+          <select
+            aria-label={t("settings_language")}
+            value={lang}
+            onChange={(e) => setLang(e.target.value as "en" | "ar")}
+            style={{
+              background: "var(--bg-inset)",
+              color: "var(--text-primary)",
+              border: "1px solid var(--border-strong)",
+              borderRadius: "var(--radius-sm)",
+              padding: "6px 8px",
+            }}
+          >
+            <option value="en">English</option>
+            <option value="ar">العربية</option>
+          </select>
+        </div>
+
         <h1 className="page-title" style={{ marginBottom: 8 }}>
           {t("onboarding_title")}
         </h1>
@@ -56,28 +84,26 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
           {t("onboarding_body")}
         </p>
 
-        <ul style={{ margin: "0 0 20px", padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 8 }}>
-          <li className="text-secondary">✓ {t("onboarding_point_local")}</li>
-          <li className="text-secondary">✓ {t("onboarding_point_no_account")}</li>
-          <li className="text-secondary">✓ {t("onboarding_point_no_upload")}</li>
+        <ul className="onboarding-points">
+          <li>{t("onboarding_point_local")}</li>
+          <li>{t("onboarding_point_no_account")}</li>
+          <li>{t("onboarding_point_no_upload")}</li>
+          <li>{t("onboarding_point_control")}</li>
         </ul>
 
         {error && <div className="error-banner">{error}</div>}
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button className="btn btn-primary" disabled={busy} onClick={onDone}>
+        <div className="action-stack">
+          <button className="btn btn-primary" type="button" disabled={busy} onClick={handleScan}>
             {t("onboarding_scan")}
           </button>
-          <button className="btn" disabled={busy} onClick={handleImport}>
+          <button className="btn" type="button" disabled={busy} onClick={handleImport}>
             {t("onboarding_import")}
           </button>
-          <button className="btn" disabled={busy} onClick={onDone}>
+          <button className="btn" type="button" disabled={busy} onClick={onDone}>
             {t("onboarding_open_library")}
           </button>
-        </div>
-
-        <div style={{ marginTop: 20 }}>
-          <button className="btn" onClick={onDone} disabled={busy}>
+          <button className="btn btn-ghost" type="button" onClick={onDone} disabled={busy}>
             {t("onboarding_skip")}
           </button>
         </div>

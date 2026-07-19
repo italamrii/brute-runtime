@@ -1,52 +1,100 @@
-/* BRUTE Runtime design tokens — premium systems-engineering instrument
-   look: black/charcoal foundation, deep red instrumentation accents, a
-   restrained brighter red reserved for active/warning states, off-white
-   primary text, muted gray secondary text. No neon gradients, no
-   glassmorphism, no gaming aesthetic. */
+/* BRUTE Runtime design tokens — a premium local-AI systems console:
+   near-black/charcoal layered surfaces, red instrumentation accents (a
+   restrained deep red as the workhorse, a brighter red reserved for
+   active/high-attention states only), off-white primary text, gray
+   secondary text, sharp geometry, dense but readable. No neon, no
+   glassmorphism, no gaming aesthetic, no oversized empty hero blocks. */
 
 :root {
-  --bg-void: #0a0a0b;
-  --bg-panel: #131315;
-  --bg-panel-raised: #19191c;
-  --bg-inset: #0e0e10;
+  /* Layered surfaces — each step is a deliberate, small luminance step. */
+  --bg-void: #060607;
+  --bg-canvas: #0a0a0c;
+  --bg-surface: #101012;
+  --bg-surface-raised: #17171a;
+  --bg-inset: #08080a;
+  --bg-sidebar: #0b0b0d;
+  /* Legacy aliases kept for any residual inline styles. */
+  --bg-panel: var(--bg-surface);
+  --bg-panel-raised: var(--bg-surface-raised);
+
+  --border-hairline: #232326;
   --border-subtle: #2a2a2e;
-  --border-strong: #3a3a3f;
+  --border-strong: #3d3d42;
 
-  --text-primary: #ededea;
-  --text-secondary: #9a9a9e;
-  --text-tertiary: #6b6b70;
+  --text-primary: #f0efec;
+  --text-secondary: #9a9aa0;
+  --text-tertiary: #67676d;
+  --text-disabled: #45454a;
 
-  --accent-red: #8f1d20;
-  --accent-red-strong: #c62f30;
-  --accent-red-active: #e6484a;
-  --accent-red-dim: #3a1616;
+  /* Red scale — 900 is the deep instrumentation workhorse;
+     500/400 are the restrained-bright active/high-attention tier. */
+  --red-900: #200a0a;
+  --red-800: #3a1214;
+  --red-700: #7a1f22;
+  --red-600: #9c272a;
+  --red-500: #c62f30;
+  --red-400: #e6484a;
+  --red-300: #f16d6e;
 
-  --state-good: #4a9d6e;
-  --state-warn: #c8942f;
-  --state-bad: var(--accent-red-active);
+  --accent-red: var(--red-700);
+  --accent-red-strong: var(--red-500);
+  --accent-red-active: var(--red-400);
+  --accent-red-dim: var(--red-900);
+
+  --state-good: #3e9a68;
+  --state-good-dim: #12241a;
+  --state-warn: #c8912b;
+  --state-warn-dim: #241c0d;
+  --state-bad: var(--red-400);
+  --state-bad-dim: var(--red-900);
   --state-unknown: #6b6b70;
+  --state-unknown-dim: #1c1c1f;
 
-  --focus-ring: #e6484a;
+  /* Provenance semantics (measured / detected / estimated / unknown). */
+  --prov-measured: var(--state-good);
+  --prov-detected: var(--accent-red-active);
+  --prov-estimated: var(--state-warn);
+  --prov-unknown: var(--state-unknown);
 
+  --focus-ring: var(--red-400);
+
+  --radius-xs: 2px;
   --radius-sm: 3px;
   --radius-md: 5px;
-  --radius-lg: 8px;
+  --radius-lg: 7px;
+
+  --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px rgba(0, 0, 0, 0.28);
+  --shadow-raise: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 2px 8px rgba(0, 0, 0, 0.35);
 
   --font-ui: "Segoe UI", "Tahoma", system-ui, -apple-system, sans-serif;
   --font-mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
 
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
+  /* Typography scale */
+  --type-page: 17px;
+  --type-section: 10.5px;
+  --type-card-label: 10px;
+  --type-metric: 19px;
+  --type-technical: 12px;
+  --type-body: 12.5px;
+  --type-support: 11px;
+  --type-micro: 9.5px;
 
-  --sidebar-width: 220px;
-  --statusbar-height: 32px;
+  /* Tight spacing — dense instrumentation, not marketing whitespace. */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 20px;
+  --space-7: 28px;
 
-  /* The instrument-panel look is a deliberate, committed aesthetic
-     (spec section 1), not a light/dark toggle — color-scheme is fixed
-     to dark rather than following the OS preference. */
+  --ease-fast: 110ms ease;
+  --ease-ui: 160ms ease;
+
+  --sidebar-width: 208px;
+  --statusbar-height: 30px;
+
+  /* The instrument-panel look is a committed aesthetic
+     (not a light/dark toggle). */
   color-scheme: dark;
 }

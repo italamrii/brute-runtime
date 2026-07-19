@@ -640,6 +640,19 @@ export interface ApplyResult {
 
 // --- Local run workspace ----------------------------------------------
 
+/** Mirrors `commands::run::RunPhase` - every transition is driven by a
+ * genuine engine signal (a real binary hash check, the first byte of
+ * real subprocess output, a real cancellation request), never a timer. */
+export type RunPhase =
+  | "preparing"
+  | "validating_runtime"
+  | "loading_model"
+  | "generating"
+  | "stopping"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
 export interface LocalRunOutcome {
   succeeded: boolean;
   timed_out: boolean;

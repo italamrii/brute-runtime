@@ -48,69 +48,84 @@ function RecommendTab() {
     }
   }
 
+  const fitTone =
+    result?.recommended.fit.state === "excellent" || result?.recommended.fit.state === "good"
+      ? "good"
+      : result?.recommended.fit.state === "not_recommended"
+        ? "bad"
+        : "warn";
+
   return (
-    <div>
-      <div className="field" style={{ maxWidth: 320 }}>
-        <label>{t("optimize_priority")}</label>
-        <select value={priority} onChange={(e) => setPriority(e.target.value as Priority)}>
-          {PRIORITIES.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </select>
-      </div>
-      <button className="btn btn-primary" onClick={run} disabled={busy}>
-        {busy ? t("common_loading") : "Recommend"}
-      </button>
-
-      {error && <div className="error-banner" style={{ marginTop: 12 }}>{error}</div>}
-
-      {result && (
-        <div className="panel" style={{ marginTop: 16 }}>
-          <h3>{result.recommended.build.display_name}</h3>
-          <p className="text-secondary">
-            Fit: <span className={`badge badge-${result.recommended.fit.state === "excellent" || result.recommended.fit.state === "good" ? "good" : result.recommended.fit.state === "not_recommended" ? "bad" : "warn"}`}>{result.recommended.fit.state}</span>
-          </p>
-          <p className="text-secondary">
-            Estimated RAM: {formatBytes(result.recommended.estimate.estimated_total_ram_bytes_low)} –{" "}
-            {formatBytes(result.recommended.estimate.estimated_total_ram_bytes_high)}
-          </p>
-
-          <div style={{ display: "flex", gap: 8, marginTop: 8, marginBottom: 8 }}>
-            <button className={`btn ${tab === "simple" ? "btn-primary" : ""}`} onClick={() => setTab("simple")}>
-              {t("optimize_simple_tab")}
-            </button>
-            <button className={`btn ${tab === "technical" ? "btn-primary" : ""}`} onClick={() => setTab("technical")}>
-              {t("optimize_technical_tab")}
-            </button>
-          </div>
-
-          {tab === "simple" ? (
-            <p>{result.explanation.simple}</p>
-          ) : (
-            <dl style={{ margin: 0 }}>
-              {Object.entries(result.explanation.technical).map(([k, v]) => (
-                <div key={k} style={{ padding: "4px 0", borderBottom: "1px solid var(--border-subtle)" }}>
-                  <div className="text-secondary" style={{ fontSize: 11, textTransform: "uppercase" }}>
-                    {k}
-                  </div>
-                  <div>{v ?? "—"}</div>
-                </div>
-              ))}
-            </dl>
-          )}
-
-          {result.safer_fallback && (
-            <p className="text-tertiary" style={{ marginTop: 8 }}>
-              Safer fallback: {result.safer_fallback.build.display_name}
-            </p>
-          )}
-          {result.stronger_optional && (
-            <p className="text-tertiary">Stronger optional: {result.stronger_optional.build.display_name}</p>
-          )}
+    <div className="stack-2">
+      <div className="panel">
+        <div className="panel-title">{t("optimize_recommend_title")}</div>
+        <div className="field">
+          <label htmlFor="rec-priority">{t("optimize_priority")}</label>
+          <select id="rec-priority" value={priority} onChange={(e) => setPriority(e.target.value as Priority)}>
+            {PRIORITIES.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
         </div>
-      )}
+        <button className="btn btn-primary" type="button" onClick={run} disabled={busy}>
+          {busy ? t("common_loading") : t("optimize_recommend_action")}
+        </button>
+        {error && <div className="error-banner" style={{ marginTop: 12 }}>{error}</div>}
+      </div>
+
+      <div className="panel">
+        <div className="panel-title">{t("optimize_result")}</div>
+        {!result && <p className="text-tertiary">{t("optimize_result_empty")}</p>}
+        {result && (
+          <>
+            <h3 style={{ fontSize: 15, marginBottom: 8 }}>{result.recommended.build.display_name}</h3>
+            <div className="chip-row" style={{ marginBottom: 10 }}>
+              <span className={`badge badge-${fitTone}`}>{result.recommended.fit.state}</span>
+              <span className="badge badge-inferred">{t("common_inferred")}</span>
+            </div>
+            <p className="text-secondary" style={{ marginBottom: 10 }}>
+              {t("optimize_est_ram")}: {formatBytes(result.recommended.estimate.estimated_total_ram_bytes_low)} –{" "}
+              {formatBytes(result.recommended.estimate.estimated_total_ram_bytes_high)}
+            </p>
+            <div className="tab-row">
+              <button type="button" className={`tab-btn ${tab === "simple" ? "is-active" : ""}`} onClick={() => setTab("simple")}>
+                {t("optimize_simple_tab")}
+              </button>
+              <button
+                type="button"
+                className={`tab-btn ${tab === "technical" ? "is-active" : ""}`}
+                onClick={() => setTab("technical")}
+              >
+                {t("optimize_technical_tab")}
+              </button>
+            </div>
+            {tab === "simple" ? (
+              <p>{result.explanation.simple}</p>
+            ) : (
+              <dl style={{ margin: 0 }}>
+                {Object.entries(result.explanation.technical).map(([k, v]) => (
+                  <div key={k} className="kv-row">
+                    <span className="kv-row-label">{k}</span>
+                    <span className="kv-row-value">{v ?? "—"}</span>
+                  </div>
+                ))}
+              </dl>
+            )}
+            {result.safer_fallback && (
+              <p className="text-tertiary" style={{ marginTop: 10 }}>
+                {t("overview_safer_fallback")}: {result.safer_fallback.build.display_name}
+              </p>
+            )}
+            {result.stronger_optional && (
+              <p className="text-tertiary">
+                {t("optimize_stronger")}: {result.stronger_optional.build.display_name}
+              </p>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -185,109 +200,152 @@ function TuneTab() {
   }
 
   if (!status.llamaBinPath) {
-    return <p className="text-secondary">Set a runtime binary path in Settings before tuning.</p>;
+    return <div className="warn-banner">{t("tune_need_binary")}</div>;
   }
 
+  const progressPct =
+    progress && progress.total_candidates > 0
+      ? Math.round((progress.completed_candidates / progress.total_candidates) * 100)
+      : running
+        ? 0
+        : null;
+
   return (
-    <div>
-      <div className="field" style={{ maxWidth: 420 }}>
-        <label>Model</label>
-        <select value={modelId} onChange={(e) => setModelId(e.target.value)}>
-          <option value="">Select a model…</option>
-          {models.map((m) => (
-            <option key={m.library_id} value={m.library_id}>
-              {m.alias ?? m.current_path.split(/[\\/]/).pop()}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="field" style={{ maxWidth: 320 }}>
-        <label>{t("optimize_priority")}</label>
-        <select value={priority} onChange={(e) => setPriority(e.target.value as RankingPriority)}>
-          {RANKING_PRIORITIES.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
-        <input type="checkbox" checked={saveProfile} onChange={(e) => setSaveProfile(e.target.checked)} />
-        Save winning profile
-      </label>
-
-      <div className="panel" style={{ marginBottom: 12, borderColor: "var(--state-warn)" }}>
-        <p>{t("tune_warning_cpu")}</p>
-        <p className="text-tertiary">{t("tune_warning_no_system_changes")}</p>
-      </div>
-
-      <div style={{ display: "flex", gap: 8 }}>
-        <button className="btn" onClick={handleDryRun} disabled={!model || busy || running}>
-          {t("tune_dry_run")}
-        </button>
-        <button className="btn btn-primary" onClick={handleStart} disabled={!model || busy || running}>
-          {t("tune_start")}
-        </button>
-        {running && (
-          <button className="btn btn-danger" onClick={handleCancel}>
-            {t("tune_cancel")}
+    <div className="stack-2">
+      <div className="panel">
+        <div className="panel-title">{t("tune_procedure")}</div>
+        <div className="field">
+          <label htmlFor="tune-model">{t("run_model")}</label>
+          <select id="tune-model" value={modelId} onChange={(e) => setModelId(e.target.value)}>
+            <option value="">{t("run_select_model")}</option>
+            {models.map((m) => (
+              <option key={m.library_id} value={m.library_id}>
+                {m.alias ?? m.current_path.split(/[\\/]/).pop()}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="tune-priority">{t("optimize_priority")}</label>
+          <select id="tune-priority" value={priority} onChange={(e) => setPriority(e.target.value as RankingPriority)}>
+            {RANKING_PRIORITIES.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+        </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
+          <input type="checkbox" checked={saveProfile} onChange={(e) => setSaveProfile(e.target.checked)} />
+          {t("tune_save_profile")}
+        </label>
+        <div className="warn-banner">
+          <p>{t("tune_warning_cpu")}</p>
+          <p className="text-tertiary" style={{ marginTop: 6 }}>
+            {t("tune_warning_no_system_changes")}
+          </p>
+        </div>
+        <div className="page-actions">
+          <button className="btn" type="button" onClick={handleDryRun} disabled={!model || busy || running}>
+            {t("tune_dry_run")}
           </button>
-        )}
+          <button className="btn btn-primary" type="button" onClick={handleStart} disabled={!model || busy || running}>
+            {t("tune_start")}
+          </button>
+          {running && (
+            <button className="btn btn-danger" type="button" onClick={handleCancel}>
+              {t("tune_cancel")}
+            </button>
+          )}
+        </div>
+        {error && <div className="error-banner" style={{ marginTop: 12 }}>{error}</div>}
       </div>
 
-      {error && <div className="error-banner" style={{ marginTop: 12 }}>{error}</div>}
-
-      {plan && !running && !result && (
-        <div className="panel" style={{ marginTop: 16 }}>
-          <div className="panel-title">Plan preview</div>
-          <p className="text-secondary">{plan.plan.candidates.length} candidate(s), formula {plan.plan.formula_version}</p>
-          {plan.backend_verifications.map((v) => (
-            <p key={v.backend} className="text-tertiary">
-              {v.backend}: {v.status} {v.failure_reason ? `— ${v.failure_reason}` : ""}
+      <div className="panel">
+        <div className="panel-title">{t("tune_status_panel")}</div>
+        {plan && !running && !result && (
+          <>
+            <p className="text-secondary">
+              {plan.plan.candidates.length} {t("tune_candidates")} · {plan.plan.formula_version}
             </p>
-          ))}
-        </div>
-      )}
+            {plan.backend_verifications.map((v) => (
+              <div key={v.backend} className="kv-row">
+                <span className="kv-row-label">{v.backend}</span>
+                <span className="kv-row-value">
+                  <span className={`badge badge-${v.status === "verified" ? "good" : v.status === "detected_only" ? "detected" : "unknown"}`}>
+                    {v.status}
+                  </span>
+                </span>
+              </div>
+            ))}
+          </>
+        )}
 
-      {running && (
-        <div className="panel" style={{ marginTop: 16 }}>
-          <div className="panel-title">Progress</div>
-          <p>
-            {progress ? `${progress.completed_candidates} / ${progress.total_candidates}` : "Starting…"}
-            {progress?.current_candidate_id ? ` — ${progress.current_candidate_id}` : ""}
-          </p>
-        </div>
-      )}
-
-      {result && (
-        <div className="panel" style={{ marginTop: 16 }}>
-          <div className="panel-title">Result</div>
-          <p className="text-secondary">
-            {result.candidate_results.length} candidate(s) measured in {result.wall_time_secs.toFixed(1)}s
-            {result.summary_cancelled ? " (cancelled)" : ""}
-          </p>
-          {result.ranking.winner ? (
-            <>
-              <h4 style={{ marginTop: 8 }}>Winner: {result.ranking.winner.candidate_id}</h4>
-              <p className="text-secondary">
-                {formatTokensPerSecond(result.ranking.winner.measurements.mean_generation_tokens_per_second)} generation,{" "}
-                {formatTokensPerSecond(result.ranking.winner.measurements.mean_prompt_tokens_per_second)} prompt · confidence:{" "}
-                {result.ranking.confidence}
+        {running && (
+          <>
+            <p className="text-secondary" style={{ marginBottom: 8 }}>
+              {progress
+                ? `${progress.completed_candidates} / ${progress.total_candidates}`
+                : t("common_loading")}
+              {progress?.current_candidate_id ? ` — ${progress.current_candidate_id}` : ""}
+            </p>
+            {progressPct !== null && (
+              <div className="meter" role="progressbar" aria-valuenow={progressPct} aria-valuemin={0} aria-valuemax={100}>
+                <div className="meter-fill" style={{ width: `${progressPct}%` }} />
+              </div>
+            )}
+            {progress?.current_candidate_id && (
+              <p className="text-tertiary mono" style={{ marginTop: 8, fontSize: 11 }}>
+                {progress.current_candidate_id}
               </p>
-              {result.saved_profile_id && <p className="text-secondary">Saved profile: {result.saved_profile_id}</p>}
-            </>
-          ) : (
-            <p className="text-secondary">No candidate completed successfully.</p>
-          )}
-          {result.ranking.unknown_values.map((u) => (
-            <p key={u} className="text-tertiary">
-              {u}
+            )}
+          </>
+        )}
+
+        {result && (
+          <>
+            <p className="text-secondary">
+              {result.candidate_results.length} {t("tune_candidates")} · {result.wall_time_secs.toFixed(1)}s
+              {result.summary_cancelled ? ` (${t("tune_cancelled")})` : ""}
             </p>
-          ))}
-        </div>
-      )}
+            {result.ranking.winner ? (
+              <>
+                <h4 style={{ marginTop: 10 }}>{t("tune_winner")}: {result.ranking.winner.candidate_id}</h4>
+                <p className="text-secondary">
+                  {formatTokensPerSecond(result.ranking.winner.measurements.mean_generation_tokens_per_second)} ·{" "}
+                  {formatTokensPerSecond(result.ranking.winner.measurements.mean_prompt_tokens_per_second)} ·{" "}
+                  {result.ranking.confidence}
+                </p>
+                <span className="badge badge-measured">{t("common_measured")}</span>
+                {result.saved_profile_id && (
+                  <p className="text-secondary" style={{ marginTop: 8 }}>
+                    {t("tune_saved_profile")}: <span className="mono">{result.saved_profile_id}</span>
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-secondary">{t("tune_no_winner")}</p>
+            )}
+            {result.ranking.runner_up && (
+              <p className="text-tertiary" style={{ marginTop: 8 }}>
+                {t("tune_runner_up")}: {result.ranking.runner_up.candidate_id}
+              </p>
+            )}
+            {result.ranking.safer_fallback && (
+              <p className="text-tertiary">
+                {t("overview_safer_fallback")}: {result.ranking.safer_fallback.candidate_id}
+              </p>
+            )}
+            {result.ranking.unknown_values.map((u) => (
+              <p key={u} className="text-tertiary">
+                {u}
+              </p>
+            ))}
+          </>
+        )}
+
+        {!plan && !running && !result && <p className="text-tertiary">{t("tune_status_empty")}</p>}
+      </div>
     </div>
   );
 }
@@ -299,13 +357,17 @@ export function Optimize() {
   return (
     <div className="page">
       <div className="page-header">
-        <h1 className="page-title">{t("optimize_title")}</h1>
+        <div>
+          <div className="page-kicker">{t("optimize_kicker")}</div>
+          <h1 className="page-title">{t("optimize_title")}</h1>
+          <p className="page-desc">{t("optimize_desc")}</p>
+        </div>
       </div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        <button className={`btn ${tab === "recommend" ? "btn-primary" : ""}`} onClick={() => setTab("recommend")}>
-          Recommend
+      <div className="tab-row">
+        <button type="button" className={`tab-btn ${tab === "recommend" ? "is-active" : ""}`} onClick={() => setTab("recommend")}>
+          {t("optimize_recommend_title")}
         </button>
-        <button className={`btn ${tab === "tune" ? "btn-primary" : ""}`} onClick={() => setTab("tune")}>
+        <button type="button" className={`tab-btn ${tab === "tune" ? "is-active" : ""}`} onClick={() => setTab("tune")}>
           {t("tune_title")}
         </button>
       </div>
