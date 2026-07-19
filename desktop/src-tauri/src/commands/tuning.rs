@@ -206,7 +206,7 @@ fn run_tuning_blocking(
         &runner_config,
         || brute::hardware::memory::sample_bytes().map(|(_, avail)| avail),
         || {
-            brute::hardware::windows::inspect_storage(&model_path_for_bench)
+            brute::hardware::system::inspect_storage(&model_path_for_bench)
                 .free_bytes
                 .value
         },

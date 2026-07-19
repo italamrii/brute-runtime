@@ -43,7 +43,8 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../../data": "data"
+      "../../data": "data",
+      "../../.tools/llama.cpp/b10064/cpu": "runtime/cpu"
     },
     "windows": {
       "webviewInstallMode": {

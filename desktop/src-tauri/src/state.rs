@@ -17,6 +17,8 @@ pub struct AppState {
     pub tune_cancel: Mutex<Option<Arc<AtomicBool>>>,
     /// `Some` only while `local_run_generate` is actively streaming.
     pub run_cancel: Mutex<Option<Arc<AtomicBool>>>,
+    /// `Some` only while `download_model` is actively downloading.
+    pub download_cancel: Mutex<Option<Arc<AtomicBool>>>,
 }
 
 /// A small cooperative-cancellation handle - `true` once cancellation
@@ -69,5 +71,6 @@ mod tests {
         let state = AppState::default();
         assert!(state.tune_cancel.lock().unwrap().is_none());
         assert!(state.run_cancel.lock().unwrap().is_none());
+        assert!(state.download_cancel.lock().unwrap().is_none());
     }
 }

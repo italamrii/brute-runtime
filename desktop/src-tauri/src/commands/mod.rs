@@ -7,8 +7,11 @@
 
 pub mod backends;
 pub mod catalog;
+pub mod discovery;
+pub mod download;
 pub mod hardware;
 pub mod library;
 pub mod profiles;
 pub mod run;
+pub mod runtime;
 pub mod tuning;

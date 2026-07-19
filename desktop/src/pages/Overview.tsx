@@ -148,8 +148,9 @@ export function Overview({ onNavigate }: { onNavigate: (page: Page) => void }) {
               <span className="metric-card-label">{t("overview_gpu")}</span>
               {hw?.gpus[0] && <ConfidenceBadge confidence="detected" />}
             </div>
-            <div className="metric-card-value" title={hw?.gpus[0]?.name}>
+            <div className="metric-card-value" title={hw?.gpus.map((g) => g.name).join(", ")}>
               {hw ? (hw.gpus[0]?.name ?? t("common_unavailable")) : "—"}
+              {hw && hw.gpus.length > 1 ? ` +${hw.gpus.length - 1}` : ""}
             </div>
             <div className="metric-card-sub">
               {hw?.gpus[0]

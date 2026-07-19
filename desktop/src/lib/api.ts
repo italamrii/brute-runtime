@@ -12,6 +12,8 @@ import type {
   Backend,
   BackendVerification,
   CalibrationStore,
+  CommonLocation,
+  DiscoveryResult,
   DuplicateGroup,
   ExplainFitDto,
   HardwareCapabilityProfile,
@@ -26,6 +28,7 @@ import type {
   RecommendationDto,
   RefreshOutcomeDto,
   RuntimeProfile,
+  RuntimeResolution,
   ScanOptionsDto,
   ScanResult,
   StorageSummary,
@@ -137,3 +140,11 @@ export const localRunGenerate = (args: {
   allow_unverified_binary: boolean;
 }) => call<LocalRunOutcome>("local_run_generate", args);
 export const localRunCancel = () => call<void>("local_run_cancel");
+
+// Runtime auto-resolution ------------------------------------------------
+export const resolveRuntime = (user_override: string | null) =>
+  call<RuntimeResolution>("resolve_runtime", { user_override });
+
+// Model auto-discovery ----------------------------------------------------
+export const listCommonModelLocations = () => call<CommonLocation[]>("list_common_model_locations");
+export const scanCommonModelLocations = () => call<DiscoveryResult[]>("scan_common_model_locations");

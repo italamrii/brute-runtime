@@ -116,3 +116,12 @@ export function IconShield(props: IconProps) {
     </Svg>
   );
 }
+
+export function IconDiscover(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M10.2 5.8 9 9l-3.2 1.2L7 6.8z" />
+    </Svg>
+  );
+}

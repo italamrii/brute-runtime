@@ -1,8 +1,9 @@
-//! Resolves the curated seed data (catalog + calibration fixtures) the
-//! core engine ships with. These are read-only, bundled with the app -
-//! never fetched, never written to, never a place user data lives (user
-//! state always goes through `brute::identity::default_local_state_dir`,
-//! i.e. `%LOCALAPPDATA%\BruteRuntime\`, unrelated to this).
+//! Resolves the curated seed data (catalog + calibration fixtures) and
+//! the bundled llama.cpp runtime the core engine ships with. These are
+//! read-only, bundled with the app - never fetched, never written to,
+//! never a place user data lives (user state always goes through
+//! `brute::identity::default_local_state_dir`, i.e.
+//! `%LOCALAPPDATA%\BruteRuntime\` on Windows, unrelated to this).
 
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
@@ -47,4 +48,41 @@ fn dev_repo_data_dir() -> PathBuf {
 #[cfg(not(debug_assertions))]
 fn dev_repo_data_dir() -> PathBuf {
     PathBuf::from("data")
+}
+
+/// The bundled CPU-only llama.cpp runtime directory, if this build
+/// actually has one - Windows only for now (see `tauri.conf.json`'s
+/// `bundle.resources`, which maps the pinned, hash-verified
+/// `.tools/llama.cpp/b10064/cpu` directory into the packaged app). In a
+/// dev build this falls back to the same real repo-relative path a
+/// developer would have populated via `scripts/fetch-llama-cpp.ps1`.
+/// Returns `None` (never a guessed/fabricated path) when neither
+/// location actually exists - `commands::runtime::resolve_runtime`
+/// treats that as "no bundled runtime available on this build/platform"
+/// and continues down the resolution hierarchy.
+pub fn bundled_runtime_dir(app: &AppHandle) -> Option<PathBuf> {
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let candidate = resource_dir.join("runtime").join("cpu");
+        if candidate.is_dir() {
+            return Some(candidate);
+        }
+    }
+    let dev_candidate = dev_repo_runtime_dir();
+    dev_candidate.is_dir().then_some(dev_candidate)
+}
+
+#[cfg(debug_assertions)]
+fn dev_repo_runtime_dir() -> PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join(".tools")
+        .join("llama.cpp")
+        .join("b10064")
+        .join("cpu")
+}
+
+#[cfg(not(debug_assertions))]
+fn dev_repo_runtime_dir() -> PathBuf {
+    PathBuf::from(".tools/llama.cpp/b10064/cpu")
 }

@@ -1,15 +1,21 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "../i18n/I18nContext";
 import { useAppStatus } from "../lib/AppStatusContext";
-import { importModel, scanDirectory } from "../lib/api";
+import { importModel, scanCommonModelLocations, scanDirectory } from "../lib/api";
+import type { DiscoveryResult } from "../lib/types";
 import { useState } from "react";
+import type { Page } from "../App";
 
-/** First-run screen: one short explanation, no internet/sign-in, fully skippable. */
-export function Onboarding({ onDone }: { onDone: () => void }) {
+/** First-run screen: one short explanation, no internet/sign-in, fully
+ * skippable. "Scan device" scans only a fixed, safe set of common model
+ * folders (never the whole disk) — see commands::discovery. */
+export function Onboarding({ onDone }: { onDone: (targetPage?: Page) => void }) {
   const { t, lang, setLang } = useI18n();
   const status = useAppStatus();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scanResults, setScanResults] = useState<DiscoveryResult[] | null>(null);
+  const [scanned, setScanned] = useState(false);
 
   async function handleImport() {
     setError(null);
@@ -31,15 +37,49 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     }
   }
 
-  async function handleScan() {
+  async function handleScanCommonLocations() {
+    setError(null);
+    setBusy(true);
+    try {
+      const results = await scanCommonModelLocations();
+      setScanResults(results);
+      setScanned(true);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleAddFolder() {
     setError(null);
     setBusy(true);
     try {
       const dir = await open({ directory: true, multiple: false });
       if (typeof dir === "string") {
-        await scanDirectory(dir, { recursive: true, max_depth: 8, max_files: 5000 });
+        const result = await scanDirectory(dir, { recursive: true, max_depth: 8, max_files: 5000 });
+        setScanResults([{ label: "common_location_custom", path: dir, scan: result }]);
+        setScanned(true);
       }
-      onDone();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const candidates = (scanResults ?? []).flatMap((r) =>
+    r.scan.discovered.filter((d) => d.kind === "gguf_candidate").map((d) => ({ ...d, location: r.path })),
+  );
+
+  async function handleImportAllDiscovered() {
+    setBusy(true);
+    setError(null);
+    try {
+      for (const c of candidates) {
+        await importModel(c.path, null);
+      }
+      onDone("models");
     } catch (e) {
       setError(String(e));
     } finally {
@@ -93,20 +133,63 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
 
         {error && <div className="error-banner">{error}</div>}
 
-        <div className="action-stack">
-          <button className="btn btn-primary" type="button" disabled={busy} onClick={handleScan}>
-            {t("onboarding_scan")}
-          </button>
-          <button className="btn" type="button" disabled={busy} onClick={handleImport}>
-            {t("onboarding_import")}
-          </button>
-          <button className="btn" type="button" disabled={busy} onClick={onDone}>
-            {t("onboarding_open_library")}
-          </button>
-          <button className="btn btn-ghost" type="button" onClick={onDone} disabled={busy}>
-            {t("onboarding_skip")}
-          </button>
-        </div>
+        {!scanned && (
+          <div className="action-stack">
+            <button className="btn btn-primary" type="button" disabled={busy} onClick={handleScanCommonLocations}>
+              {t("onboarding_scan")}
+            </button>
+            <button className="btn" type="button" disabled={busy} onClick={handleAddFolder}>
+              {t("common_add_folder")}
+            </button>
+            <button className="btn" type="button" disabled={busy} onClick={handleImport}>
+              {t("onboarding_import")}
+            </button>
+            <button className="btn" type="button" disabled={busy} onClick={() => onDone("discover")}>
+              {t("common_discover_models")}
+            </button>
+            <button className="btn btn-ghost" type="button" onClick={() => onDone()} disabled={busy}>
+              {t("onboarding_skip")}
+            </button>
+          </div>
+        )}
+
+        {scanned && (
+          <div>
+            {candidates.length === 0 ? (
+              <div className="empty-state" style={{ marginBottom: 16 }}>
+                {t("onboarding_empty_scan")}
+              </div>
+            ) : (
+              <div className="panel" style={{ marginBottom: 16 }}>
+                <div className="panel-title">{t("onboarding_found_models")}</div>
+                {candidates.map((c) => (
+                  <div key={c.path} className="kv-row">
+                    <span className="kv-row-label mono" style={{ wordBreak: "break-all" }}>
+                      {c.path.split(/[\\/]/).pop()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="action-stack">
+              {candidates.length > 0 && (
+                <button className="btn btn-primary" type="button" disabled={busy} onClick={handleImportAllDiscovered}>
+                  {t("onboarding_import_discovered")}
+                </button>
+              )}
+              <button className="btn" type="button" disabled={busy} onClick={handleAddFolder}>
+                {t("common_add_folder")}
+              </button>
+              <button className="btn" type="button" disabled={busy} onClick={() => onDone("discover")}>
+                {t("common_discover_models")}
+              </button>
+              <button className="btn btn-ghost" type="button" onClick={() => onDone()} disabled={busy}>
+                {t("onboarding_skip")}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

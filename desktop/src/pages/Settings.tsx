@@ -4,13 +4,33 @@ import { useAppStatus } from "../lib/AppStatusContext";
 
 const ONBOARDED_KEY = "brute.onboarded";
 
+function runtimeSourceTone(source: string | undefined): "good" | "warn" | "bad" | "unknown" {
+  switch (source) {
+    case "bundled":
+      return "good";
+    case "user_override":
+    case "discovered":
+      return "warn";
+    case "not_found":
+      return "bad";
+    default:
+      return "unknown";
+  }
+}
+
 export function Settings() {
   const { t, lang, setLang } = useI18n();
   const status = useAppStatus();
 
-  async function chooseLlamaBin() {
+  async function chooseRuntimeOverride() {
     const dir = await open({ directory: true, multiple: false });
-    if (typeof dir === "string") status.setLlamaBinPath(dir);
+    if (typeof dir === "string") {
+      status.setManualRuntimeOverride(dir);
+    }
+  }
+
+  async function clearRuntimeOverride() {
+    status.setManualRuntimeOverride("");
   }
 
   return (
@@ -37,18 +57,73 @@ export function Settings() {
 
         <div className="panel">
           <div className="panel-title">{t("settings_runtime")}</div>
-          <div className="field">
-            <label htmlFor="settings-llama">{t("settings_runtime_binary")}</label>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input id="settings-llama" type="text" readOnly value={status.llamaBinPath || t("status_none")} className="path-text" style={{ flex: 1 }} />
-              <button className="btn" type="button" onClick={chooseLlamaBin}>
-                {t("settings_choose")}
-              </button>
-            </div>
+          <div className="kv-row">
+            <span className="kv-row-label">{t("settings_runtime_status")}</span>
+            <span className="kv-row-value">
+              <span className={`badge badge-${runtimeSourceTone(status.runtimeResolution?.source)}`}>
+                {status.runtimeResolution ? t(`settings_runtime_source_${status.runtimeResolution.source}`) : t("common_loading")}
+              </span>
+            </span>
           </div>
-          <div className="field">
+          {status.runtimeResolution?.binary_dir && (
+            <div className="kv-row">
+              <span className="kv-row-label">{t("settings_runtime_binary")}</span>
+              <span className="kv-row-value mono path-text">{status.runtimeResolution.binary_dir}</span>
+            </div>
+          )}
+          <div className="kv-row">
+            <span className="kv-row-label">{t("settings_runtime_verification")}</span>
+            <span className="kv-row-value">
+              {status.runtimeResolution ? (
+                <>
+                  <span className={`badge ${status.runtimeResolution.cli_verified ? "badge-good" : "badge-unknown"}`}>llama-cli</span>
+                  <span className={`badge ${status.runtimeResolution.bench_verified ? "badge-good" : "badge-unknown"}`} style={{ marginInlineStart: 6 }}>
+                    llama-bench
+                  </span>
+                </>
+              ) : (
+                "—"
+              )}
+            </span>
+          </div>
+          <p className="text-secondary" style={{ marginTop: 8, fontSize: 11.5 }}>
+            {status.runtimeResolution?.detail}
+          </p>
+          <button className="btn" type="button" style={{ marginTop: 8 }} onClick={() => status.refreshRuntimeResolution()}>
+            {t("settings_runtime_recheck")}
+          </button>
+
+          <div className="field" style={{ marginTop: 8 }}>
             <label htmlFor="settings-lib">{t("settings_library_location")}</label>
             <input id="settings-lib" type="text" readOnly value={status.libraryPath} className="path-text" />
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-title">{t("settings_advanced")}</div>
+          <p className="text-secondary" style={{ marginBottom: 12, fontSize: 11.5 }}>
+            {t("settings_advanced_override_hint")}
+          </p>
+          <div className="field">
+            <label htmlFor="settings-runtime-override">{t("settings_advanced_override")}</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                id="settings-runtime-override"
+                type="text"
+                readOnly
+                value={status.manualRuntimeOverride || t("status_none")}
+                className="path-text"
+                style={{ flex: 1 }}
+              />
+              <button className="btn" type="button" onClick={chooseRuntimeOverride}>
+                {t("settings_choose")}
+              </button>
+              {status.manualRuntimeOverride && (
+                <button className="btn btn-ghost" type="button" onClick={clearRuntimeOverride}>
+                  {t("common_clear")}
+                </button>
+              )}
+            </div>
           </div>
         </div>
 

@@ -3,6 +3,7 @@ import { useI18n } from "../i18n/I18nContext";
 import { useAppStatus } from "../lib/AppStatusContext";
 import type { Page } from "../App";
 import {
+  IconDiscover,
   IconHardware,
   IconHealth,
   IconModels,
@@ -17,6 +18,7 @@ const NAV_ITEMS: { page: Page; key: string; Icon: typeof IconOverview }[] = [
   { page: "overview", key: "nav_overview", Icon: IconOverview },
   { page: "hardware", key: "nav_hardware", Icon: IconHardware },
   { page: "models", key: "nav_models", Icon: IconModels },
+  { page: "discover", key: "nav_discover", Icon: IconDiscover },
   { page: "optimize", key: "nav_optimize", Icon: IconOptimize },
   { page: "run", key: "nav_run", Icon: IconRun },
   { page: "profiles", key: "nav_profiles", Icon: IconProfiles },

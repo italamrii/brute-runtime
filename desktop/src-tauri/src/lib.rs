@@ -46,6 +46,11 @@ pub fn run() {
             commands::profiles::profiles_delete,
             commands::run::local_run_generate,
             commands::run::local_run_cancel,
+            commands::runtime::resolve_runtime,
+            commands::discovery::list_common_model_locations,
+            commands::discovery::scan_common_model_locations,
+            commands::download::download_model,
+            commands::download::cancel_download,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

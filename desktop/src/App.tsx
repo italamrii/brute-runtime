@@ -6,13 +6,14 @@ import { Onboarding } from "./pages/Onboarding";
 import { Overview } from "./pages/Overview";
 import { Hardware } from "./pages/Hardware";
 import { Models } from "./pages/Models";
+import { Discover } from "./pages/Discover";
 import { Optimize } from "./pages/Optimize";
 import { Run } from "./pages/Run";
 import { Profiles } from "./pages/Profiles";
 import { Health } from "./pages/Health";
 import { Settings } from "./pages/Settings";
 
-export type Page = "overview" | "hardware" | "models" | "optimize" | "run" | "profiles" | "health" | "settings";
+export type Page = "overview" | "hardware" | "models" | "discover" | "optimize" | "run" | "profiles" | "health" | "settings";
 
 const ONBOARDED_KEY = "brute.onboarded";
 
@@ -23,9 +24,10 @@ function AppShellRouter() {
   if (!onboarded) {
     return (
       <Onboarding
-        onDone={() => {
+        onDone={(targetPage) => {
           window.localStorage.setItem(ONBOARDED_KEY, "1");
           setOnboarded(true);
+          if (targetPage) setPage(targetPage);
         }}
       />
     );
@@ -36,6 +38,7 @@ function AppShellRouter() {
       {page === "overview" && <Overview onNavigate={setPage} />}
       {page === "hardware" && <Hardware />}
       {page === "models" && <Models />}
+      {page === "discover" && <Discover />}
       {page === "optimize" && <Optimize />}
       {page === "run" && <Run />}
       {page === "profiles" && <Profiles />}

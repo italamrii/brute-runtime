@@ -70,7 +70,10 @@ export function Hardware() {
             </div>
             <div className="summary-strip-item">
               <div className="summary-strip-label">{t("hardware_gpu")}</div>
-              <div className="summary-strip-value">{hw.gpus[0]?.name ?? t("common_unavailable")}</div>
+              <div className="summary-strip-value">
+                {hw.gpus[0]?.name ?? t("common_unavailable")}
+                {hw.gpus.length > 1 ? ` +${hw.gpus.length - 1}` : ""}
+              </div>
             </div>
             <div className="summary-strip-item">
               <div className="summary-strip-label">{t("hardware_os")}</div>

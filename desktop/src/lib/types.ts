@@ -662,3 +662,29 @@ export interface LocalRunOutcome {
   elapsed_secs: number;
   error: string | null;
 }
+
+// --- Runtime auto-resolution --------------------------------------------
+
+export type RuntimeSource = "bundled" | "user_override" | "discovered" | "not_found";
+
+export interface RuntimeResolution {
+  source: RuntimeSource;
+  binary_dir: string | null;
+  cli_verified: boolean;
+  bench_verified: boolean;
+  detail: string;
+}
+
+// --- Model auto-discovery -------------------------------------------------
+
+export interface CommonLocation {
+  label: string;
+  path: string;
+  exists: boolean;
+}
+
+export interface DiscoveryResult {
+  label: string;
+  path: string;
+  scan: ScanResult;
+}
