@@ -5,25 +5,57 @@
 This document exists because Stage 2 introduces the first *persistent*
 local state (saved tuning runs, runtime profiles) beyond the plain JSON
 fixture files under `data/`. Everything below is either verified by a
-test cited inline or is a direct, auditable property of the code (no
-network client is linked into the binary at all — see
-`docs/security-model.md` and `docs/stage-1-verification.md` §10 for the
-zero-network-crate dependency audit, which Stage 2 does not change).
+test cited inline or is a direct, auditable property of the code.
+
+## The one, explicit, user-triggered exception: model download
+
+The core `brute` engine crate still has zero network dependencies -
+that has not changed (see `docs/security-model.md` and
+`docs/stage-1-verification.md` §10 for the dependency audit). The
+desktop app's `commands/download.rs` module is the **only** place in
+the entire codebase that makes a network request, and it exists
+specifically to let a user download a catalog model they explicitly
+chose, from its official source URL, with the destination path and
+size shown before anything happens. It never runs automatically:
+
+- No download starts without a user clicking a specific "download this
+  model" button after seeing its size, license, and destination path.
+- The default application behavior is offline - nothing calls this
+  command on startup, on a timer, or as a side effect of any other
+  action.
+- The request goes to exactly the URL shown in the catalog entry's
+  `official_source_url` field, or the URL the download command was
+  explicitly given - never a URL BRUTE constructs from user data or
+  telemetry.
+- Progress, cancellation, and the real computed SHA-256 of what was
+  downloaded are all shown to the user - nothing about the transfer is
+  hidden.
+- The downloaded file is only ever written to disk (via a `.partial`
+  file, atomically renamed on success) - never executed.
+- `ureq` (the HTTP client) is a dependency of the `brute-desktop` crate
+  only, never of the core `brute` engine - every other command in the
+  application (hardware inspection, library management, tuning, local
+  generation) remains exactly as network-free as it always was.
+
+See `docs/security-model.md` for the full IPC/command-boundary analysis
+of this one command.
 
 ## What BRUTE never does (mandatory, all stages)
 
-- No telemetry. No analytics. No network requests of any kind.
+- No telemetry. No analytics. No background/automatic network requests.
 - No country/locale detection.
 - No user accounts.
 - No cloud database.
 - No remote logging.
-- No automatic uploads.
+- No automatic uploads (uploads do not exist in this application at all).
 - No placeholder "data sharing" interfaces waiting to be turned on later.
 
-There is no code path anywhere in this repository that opens a network
-socket. This isn't a policy toggle that could be flipped — no HTTP/TLS/
-socket crate is a dependency of the `brute` binary at all (`Cargo.toml`
-has none), so there is nothing to disable.
+Outside of the one explicit, user-triggered model download described
+above, there is no code path anywhere in this repository that opens a
+network socket. The core engine crate still has no HTTP/TLS/socket
+dependency at all (`Cargo.toml` has none) - there is nothing to
+disable there because nothing can connect from that crate in the first
+place.
 
 ## Where Stage 2 state actually lives
 

@@ -317,3 +317,46 @@ is a deliberate, documented scope cut.
   time**, matching the CLI's own single-run model (`AppState` holds one
   cancellation flag per session type) - not a limitation introduced by
   the desktop layer, an intentional continuation of Stage 2's design.
+
+## Cross-platform architecture and model discovery/download (post-MVP pass)
+
+- **macOS and Linux are compile-verified only, not run-verified.** The
+  core engine now builds cleanly for `x86_64-unknown-linux-gnu`,
+  `x86_64-apple-darwin`, and `aarch64-apple-darwin` (real cross-target
+  `cargo check`/`cargo clippy`, zero warnings), but no macOS or Linux
+  machine has actually executed this code. See `docs/cross-platform.md`
+  for the full, itemized "what this does and does not prove."
+- **Model download does not support pause/resume.** `download_model`
+  supports start, live progress, cancel, and post-download checksum
+  computation, but not HTTP range-request resumption - a cancelled
+  download must restart from zero. See `docs/security-model.md` item 21
+  and `commands/download.rs`'s own doc comment.
+- **Per-process peak memory sampling has no macOS implementation.**
+  Windows (`GetProcessMemoryInfo`) and Linux (`/proc/<pid>/status`
+  `VmHWM`) both report a real OS-tracked peak; macOS would need
+  `libproc`/`task_info` FFI, judged out of scope for this pass -
+  `query_peak_working_set` honestly returns `None` there rather than a
+  mislabeled current-RSS reading.
+- **The Rust test suite's own process-launch tests are Windows-only.**
+  `runtime::process`'s tests launch `cmd.exe` directly; they will fail
+  to run (not fail to compile) on a Linux/macOS CI runner. Cross-target
+  `cargo check`/`clippy` were used to verify the *shipped* code compiles
+  everywhere; making the test harness itself OS-neutral is deferred to
+  the CI pipeline work.
+- **ARM64 CPU instruction-set detection reports nothing, honestly.**
+  `raw_cpuid` only reads x86/x86_64 CPUID leaves; on Apple Silicon or
+  ARM Linux, `hardware::cpu::detect_instruction_sets` returns an empty
+  list rather than guessing - llama.cpp's ARM/NEON kernel dispatch is a
+  separate, not-yet-modeled concern.
+- **The "Discover Models" catalog page reuses the existing curated
+  `dev-catalog.json` fixture** - it does not add a second, larger
+  catalog or any remote catalog sync (which remains explicitly out of
+  scope - see the privacy model's no-remote-catalog-sync guarantee).
+  Fit/recommendation data shown there comes from the same
+  `recommend`/`fit` engine calls the Optimize page already used.
+- **The common-folder model auto-discovery list is a fixed, small set**
+  (Downloads, Documents, LM Studio's and Ollama's documented model
+  cache paths, and `C:\Models` on Windows) - not a configurable list of
+  arbitrary user-added folders yet; "Add folder" (a manual, one-off
+  directory scan) is available as a complement, not a persisted list of
+  additional auto-scan locations.

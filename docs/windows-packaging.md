@@ -30,6 +30,15 @@ bundler. Bundle targets are configured in
   data available - `paths.rs`'s dev-only fallback
   (`CARGO_MANIFEST_DIR/../../data`) only exists in debug builds, since a
   packaged install has no access to the source repository.
+- `bundle.resources` also copies the pinned, hash-verified CPU-only
+  llama.cpp runtime (`.tools/llama.cpp/b10064/cpu`, populated by
+  `scripts/fetch-llama-cpp.ps1`) into the app's resource directory as
+  `runtime/cpu/` - including each binary's sibling `.sha256` pin file,
+  so `commands::runtime::resolve_runtime`'s strict (non-lenient)
+  verification of the bundled tier actually has something to check
+  against. This is what lets an ordinary user run a model without ever
+  configuring a runtime path themselves - see
+  `docs/architecture.md`'s "trusted runtime resolution" section.
 - App icons (`icons/*.png`, `icons/icon.ico`, `icons/icon.icns`) -
   locally provided, no external icon service.
 
@@ -121,6 +130,31 @@ install performed): `brute-desktop.exe`, `brute_desktop_lib.dll`, and
 under `Program Files\BRUTE Runtime\` - confirming the `bundle.resources`
 fix (see below) actually ships the seed data a packaged install needs,
 not just the dev build's repo-relative fallback.
+
+### Rebuild after adding trusted runtime auto-resolution + cross-platform architecture
+
+A later pass in the same overall effort added the bundled-runtime
+resolution hierarchy, model auto-discovery, the Discover Models catalog
+page, the explicit user-triggered download flow, and cross-platform
+(compile-only) hardware detection. The full production build was
+re-run afterward to confirm packaging still succeeds with these
+changes (new `ureq`/`dirs` dependencies, the additional bundled
+`runtime/cpu/` resource):
+
+| Artifact | Size | SHA-256 |
+|---|---|---|
+| `BRUTE Runtime_0.1.0_x64_en-US.msi` | 23,535,616 bytes | `C75228F50E5692ABACFFDB7E6C647DDFB8E21654DE7B54EF42F34DA40531EEEA` |
+| `BRUTE Runtime_0.1.0_x64-setup.exe` | 13,180,013 bytes | `47D24FE563765674D9C2AA43BDA52BBFD025D79B7E44C6F1C9927234FD58806D` |
+
+The size increase versus the first build (~20 MB) is the bundled
+CPU-only llama.cpp runtime (`.tools/llama.cpp/b10064/cpu`, ~45 MB
+uncompressed) now shipping inside the installer. A second
+administrative MSI extraction confirmed `runtime\cpu\llama-cli.exe`,
+`runtime\cpu\llama-bench.exe`, and their sibling `.sha256` pin files
+are genuinely present in the installed payload (53 files under
+`runtime\cpu\` total) - not just the raw executables, but the pin
+files `commands::runtime::resolve_runtime`'s strict bundled-tier
+verification actually depends on.
 
 ### A real gap this build caught and fixed
 

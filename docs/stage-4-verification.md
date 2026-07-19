@@ -247,8 +247,74 @@ genuine multi-phase execution state instead of a coarse
 idle/active/done label. What remains for full production sign-off is a
 human (or future tooled session) actually clicking through every
 workflow and capturing screenshots, which this session's toolset cannot
-perform itself. Cross-platform (macOS/Linux) support was explicitly
-scoped out of this MVP by prior user instruction in this same
-conversation and was not attempted here - see the end-of-turn note for
-why that instruction now appears to conflict with a later request and
-needs the user's explicit direction before any code changes begin.
+perform itself.
+
+## Cross-platform architecture, trusted runtime resolution, model discovery/catalog/download (final pass)
+
+A subsequent pass in the same overall effort, after explicit user
+direction to proceed with compile-only cross-platform work plus a set
+of named release blockers, added:
+
+1. **Cross-platform hardware detection**, isolated behind
+   `src/platform/{windows,macos,linux}.rs`. Verified via real
+   cross-target `cargo check`/`cargo clippy --all-targets -- -D
+   warnings` for `x86_64-unknown-linux-gnu`, `x86_64-apple-darwin`, and
+   `aarch64-apple-darwin` - all five checks passed with zero errors and
+   zero warnings. **Not run on real macOS/Linux hardware** - see
+   `docs/cross-platform.md` for exactly what compile-verified does and
+   does not prove. A real bug this caught: `runtime::process`'s
+   per-process peak-memory sampling used unconditional Win32 calls with
+   no `cfg(windows)` guard - fixed with a real Linux implementation
+   (`/proc/<pid>/status` `VmHWM`) and an honest `None` on macOS.
+2. **Trusted runtime auto-resolution**
+   (`commands::runtime::resolve_runtime`): bundled (strictly hash-
+   verified) → advanced-settings override (lenient) → PATH-discovered
+   (lenient) → actionable not-found state. The CPU-only pinned llama.cpp
+   runtime is now bundled into the packaged app
+   (`tauri.conf.json`'s `bundle.resources`) and was confirmed present -
+   including its `.sha256` pin files - via a real MSI extraction (see
+   `docs/windows-packaging.md`). The manual runtime-path text field
+   moved to a new Settings → Advanced section; ordinary users no longer
+   need to configure a path.
+3. **Automatic model discovery** (`commands::discovery`): scans a
+   fixed, bounded set of common local model locations (Downloads,
+   Documents, LM Studio's and Ollama's documented model caches, and
+   `C:\Models` on Windows) using the same bounded `library::scan::scan`
+   the manual scan flow already used - never the whole disk. Wired into
+   the first-run Onboarding screen, which now shows real discovered
+   candidates (or the specified empty-state message) instead of
+   discarding scan results.
+4. **A "Discover Models" catalog page** reusing the existing
+   `recommend`/`fit` engine (no new Rust logic needed) with
+   Recommended/Compatible/Heavy/Not Recommended status per catalog
+   entry, filters, and an explicit "Open official source" action.
+5. **An explicit, user-triggered model download command**
+   (`commands::download::download_model`) - the first network-capable
+   code in the entire codebase, confined to the `brute-desktop` crate
+   only (the core `brute` engine remains dependency-free of any
+   HTTP/TLS crate). Streams to a `.partial` file, reports live progress,
+   supports cancellation, computes a real SHA-256 of what was
+   downloaded, and only atomically renames to the final destination on
+   success. Pause/resume is a documented, deferred gap (see
+   `docs/known-limitations.md`).
+
+**Verified in this pass**: root engine 305/305 tests (up from 301 -
+new `platform`/`hardware` test coverage), desktop crate 25/25 tests (up
+from 17 - new `discovery`/`runtime`/`download` command tests), both
+`cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`
+clean on both crates and on all three additional cross-compilation
+targets, frontend `npm run build`/`npm run lint`/`npm test` all clean
+(20/20 tests), a live `cargo tauri dev` session that picked up every
+change via its file watcher and stayed running throughout, and a full
+production `npm run tauri build` that produced a working MSI (23.5 MB)
+and NSIS installer (13.2 MB) with the bundled runtime independently
+confirmed present via MSI extraction - see `docs/windows-packaging.md`
+for exact checksums. A real bug was caught and fixed mid-session by
+this verification discipline: two test-fixture Windows paths written
+via a shell heredoc lost their backslash escaping, which cross-checking
+against a fresh `cargo build`/`cargo test` run caught immediately
+(fixed with raw string literals).
+
+Interactive screenshots and native macOS/Linux execution remain the
+same documented gap as the rest of this file - this session's toolset
+cannot capture them.

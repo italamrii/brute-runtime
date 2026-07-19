@@ -243,11 +243,30 @@
 
 20. **Cancellation state is desktop-shell-only and cannot be used to
     corrupt engine state.** `desktop/src-tauri/src/state.rs`'s `AppState`
-    holds only two `Mutex<Option<Arc<AtomicBool>>>` cancellation flags -
-    it is not a cache of engine data and cannot drift out of sync with
-    `%LOCALAPPDATA%\BruteRuntime\`, since every command re-reads that
-    state fresh on every call (see `docs/architecture.md`, "Why the
-    desktop backend has almost no state of its own").
+    holds only three `Mutex<Option<Arc<AtomicBool>>>` cancellation flags
+    (tuning, local generation, download) - it is not a cache of engine
+    data and cannot drift out of sync with `%LOCALAPPDATA%\BruteRuntime\`,
+    since every command re-reads that state fresh on every call (see
+    `docs/architecture.md`, "Why the desktop backend has almost no state
+    of its own").
+
+21. **The one network-capable command (`download_model`) has its own,
+    narrower boundary on top of everything above.** It rejects any URL
+    that is not `http://`/`https://` before doing anything (no
+    `file://`, no bare path, no `javascript:` - see
+    `commands::download::is_supported_url` and its test). It streams to
+    a `<destination>.partial` file and only renames to the real
+    destination after a full, uncancelled transfer - a cancelled or
+    failed download never leaves a truncated file at the real
+    destination path. It computes the real SHA-256 of what was actually
+    written (never an assumed value) and reports it to the frontend, but
+    never treats that hash as an "expected value was matched" claim
+    (the catalog schema has no independently curated expected hash to
+    check against - see `docs/trust-and-provenance.md`'s equivalent
+    limitation for `library::import`). The downloaded file is only ever
+    written to disk - `download_model` never executes it, and no other
+    command in the application executes a file from an unvalidated
+    source either (see items 1-11 above, all still unchanged).
 
 ## Residual risk / honest limitations
 
