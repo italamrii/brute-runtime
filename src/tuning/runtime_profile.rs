@@ -229,7 +229,7 @@ pub fn check_still_valid(
         && expected != actual
     {
         reasons.push(InvalidationReason::BinaryHashMismatch {
-            which: "llama-cli.exe".to_string(),
+            which: format!("llama-cli{}", std::env::consts::EXE_SUFFIX),
             expected: expected.clone(),
             actual: actual.to_string(),
         });
@@ -240,7 +240,7 @@ pub fn check_still_valid(
         && expected != actual
     {
         reasons.push(InvalidationReason::BinaryHashMismatch {
-            which: "llama-bench.exe".to_string(),
+            which: format!("llama-bench{}", std::env::consts::EXE_SUFFIX),
             expected: expected.clone(),
             actual: actual.to_string(),
         });

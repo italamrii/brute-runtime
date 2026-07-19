@@ -21,6 +21,7 @@ pub mod hardware;
 pub mod identity;
 pub mod library;
 pub mod models;
+pub mod platform;
 pub mod profile;
 pub mod provenance;
 pub mod recommend;

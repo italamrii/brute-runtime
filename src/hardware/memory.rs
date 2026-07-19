@@ -1,45 +1,44 @@
-//! System memory via `GlobalMemoryStatusEx` - a direct Win32 API call, no
-//! interpretation, so this is always `Measured` when it succeeds.
+//! System memory via `sysinfo` - a cross-platform crate that wraps each
+//! OS's own native memory query (`GlobalMemoryStatusEx` on Windows,
+//! `host_statistics64`/`sysctl` on macOS, `/proc/meminfo` on Linux), so
+//! this needs no platform-specific code of its own. Always `Measured`
+//! when the OS call succeeds - never interpreted or estimated.
 
 use super::{HardwareField, MemoryReport};
-use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+use sysinfo::System;
 
 pub fn inspect_memory() -> MemoryReport {
-    let mut status = MEMORYSTATUSEX {
-        dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
-        ..Default::default()
-    };
+    let mut sys = System::new_all();
+    sys.refresh_memory();
 
-    match unsafe { GlobalMemoryStatusEx(&mut status) } {
-        Ok(()) => MemoryReport {
-            total_bytes: HardwareField::measured(
-                status.ullTotalPhys,
-                "Win32 GlobalMemoryStatusEx.ullTotalPhys",
+    let total = sys.total_memory();
+    let available = sys.available_memory();
+
+    if total == 0 {
+        return MemoryReport {
+            total_bytes: HardwareField::unavailable("sysinfo::System::total_memory reported 0"),
+            available_bytes: HardwareField::unavailable(
+                "sysinfo::System::available_memory reported 0",
             ),
-            available_bytes: HardwareField::measured(
-                status.ullAvailPhys,
-                "Win32 GlobalMemoryStatusEx.ullAvailPhys",
-            ),
-        },
-        Err(e) => MemoryReport {
-            total_bytes: HardwareField::unavailable(format!("GlobalMemoryStatusEx failed: {e}")),
-            available_bytes: HardwareField::unavailable(format!(
-                "GlobalMemoryStatusEx failed: {e}"
-            )),
-        },
+        };
+    }
+
+    MemoryReport {
+        total_bytes: HardwareField::measured(total, "sysinfo::System::total_memory"),
+        available_bytes: HardwareField::measured(available, "sysinfo::System::available_memory"),
     }
 }
 
 /// Snapshot of just the two numbers, used for before/during/after sampling
 /// around a benchmark run without re-deriving the full `MemoryReport`.
 pub fn sample_bytes() -> Option<(u64, u64)> {
-    let mut status = MEMORYSTATUSEX {
-        dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
-        ..Default::default()
-    };
-    unsafe { GlobalMemoryStatusEx(&mut status) }
-        .ok()
-        .map(|()| (status.ullTotalPhys, status.ullAvailPhys))
+    let mut sys = System::new_all();
+    sys.refresh_memory();
+    let total = sys.total_memory();
+    if total == 0 {
+        return None;
+    }
+    Some((total, sys.available_memory()))
 }
 
 #[cfg(test)]

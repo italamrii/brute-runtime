@@ -238,6 +238,15 @@ fn drain_streaming(mut reader: impl Read, mut on_chunk: impl FnMut(&[u8])) -> Ve
     all
 }
 
+/// Peak resident/working-set memory sampled for the child process at the
+/// moment this is called (used right before the child is reaped, so it
+/// reflects the process's lifetime peak, not just a point-in-time
+/// snapshot - see the two call sites). Genuinely platform-specific:
+/// Windows and Linux both expose a real OS-tracked *peak* value;
+/// there is no equivalently simple peak query on macOS (it would need
+/// `libproc`/`task_info` FFI), so macOS honestly reports `None` rather
+/// than silently substituting a current-RSS reading mislabeled as peak.
+#[cfg(windows)]
 fn query_peak_working_set(child: &Child) -> Option<u64> {
     use std::os::windows::io::AsRawHandle;
     use windows::Win32::Foundation::HANDLE;
@@ -252,6 +261,25 @@ fn query_peak_working_set(child: &Child) -> Option<u64> {
     unsafe { GetProcessMemoryInfo(handle, &mut counters, counters.cb) }
         .ok()
         .map(|()| counters.PeakWorkingSetSize as u64)
+}
+
+/// `/proc/<pid>/status`'s `VmHWM` ("High Water Mark") line is the
+/// kernel's own tracked peak resident set size for the process - a real
+/// OS-maintained peak, not a current-usage approximation, and needs no
+/// subprocess or FFI (just a text file read).
+#[cfg(target_os = "linux")]
+fn query_peak_working_set(child: &Child) -> Option<u64> {
+    let status = std::fs::read_to_string(format!("/proc/{}/status", child.id())).ok()?;
+    status.lines().find_map(|line| {
+        let rest = line.strip_prefix("VmHWM:")?;
+        let kb: u64 = rest.trim().trim_end_matches(" kB").trim().parse().ok()?;
+        Some(kb * 1024)
+    })
+}
+
+#[cfg(all(not(windows), not(target_os = "linux")))]
+fn query_peak_working_set(_child: &Child) -> Option<u64> {
+    None
 }
 
 #[cfg(test)]

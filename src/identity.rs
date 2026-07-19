@@ -3,17 +3,22 @@
 //! Stage 1's `profile::compute_machine_id` is a coarse hash of CPU brand,
 //! core counts, rounded RAM, and OS build. It's not a hardware serial
 //! number, but it *is* fully deterministic from hardware alone, so it
-//! never changes across a Windows reinstall on the same physical machine
-//! — a real, if low-entropy, stable cross-install fingerprint. Stage 2
-//! needs local identifiers that are genuinely random and resettable, for
+//! never changes across a reinstall on the same physical machine — a
+//! real, if low-entropy, stable cross-install fingerprint. Stage 2 needs
+//! local identifiers that are genuinely random and resettable, for
 //! anything that gets saved locally (runtime tuning profiles) or could
 //! appear in a shareable export.
 //!
-//! This module generates a random 128-bit ID via `BCryptGenRandom` (the
-//! Windows CNG system RNG — a direct OS call, not a bundled PRNG crate),
-//! persists it to a local, per-user file outside the repository, and
-//! reuses it on subsequent runs until explicitly reset. Deleting the file
-//! (or running `brute privacy reset-id`) generates a brand new one.
+//! This module generates a random 128-bit ID via the `getrandom` crate
+//! (a direct OS call on every platform - `BCryptGenRandom` on Windows,
+//! `getentropy`/`/dev/urandom` on macOS/Linux, not a bundled PRNG), and
+//! resolves the local state root via the `dirs` crate's platform-correct
+//! application-data directory (`%LOCALAPPDATA%` on Windows,
+//! `~/Library/Application Support` on macOS, `$XDG_DATA_HOME` or
+//! `~/.local/share` on Linux) rather than a hand-written per-OS path.
+//! The ID is persisted to a local, per-user file outside the repository,
+//! and reused on subsequent runs until explicitly reset. Deleting the
+//! file (or running `brute privacy reset-id`) generates a brand new one.
 //!
 //! `local_instance_id` is safe to include in shareable exports: it
 //! identifies nothing about the hardware, carries no cross-machine
@@ -24,21 +29,25 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use windows::Win32::Security::Cryptography::{BCRYPT_USE_SYSTEM_PREFERRED_RNG, BCryptGenRandom};
 
-/// `%LOCALAPPDATA%\BruteRuntime\instance-id` — per-user local state, never
-/// part of the git-tracked repository (unlike the curated catalog/
+/// `<local-state-root>/BruteRuntime/instance-id` — per-user local state,
+/// never part of the git-tracked repository (unlike the curated catalog/
 /// calibration seed data under `data/`, this is machine-local and
 /// user-specific by nature).
 pub fn default_instance_id_path() -> PathBuf {
     default_local_state_dir().join("instance-id")
 }
 
-/// `%LOCALAPPDATA%\BruteRuntime\` — the root for all Stage 2 local state
-/// (instance ID, saved runtime profiles, tuning progress/cancel files).
+/// The per-user local-app-data root for all Stage 2+ local state
+/// (instance ID, saved runtime profiles, tuning progress/cancel files,
+/// the trusted model library index): `%LOCALAPPDATA%\BruteRuntime\` on
+/// Windows, `~/Library/Application Support/BruteRuntime/` on macOS,
+/// `$XDG_DATA_HOME/BruteRuntime/` (or `~/.local/share/BruteRuntime/`) on
+/// Linux. Falls back to the OS temp directory only if the platform
+/// somehow reports no data-local directory at all (never silently
+/// writes into the current working directory).
 pub fn default_local_state_dir() -> PathBuf {
-    std::env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
+    dirs::data_local_dir()
         .unwrap_or_else(std::env::temp_dir)
         .join("BruteRuntime")
 }
@@ -78,16 +87,15 @@ pub fn reset_local_instance_id(path: &Path) -> io::Result<()> {
 /// or user meaning.
 pub fn generate_random_id() -> String {
     let mut bytes = [0u8; 16];
-    // BCRYPT_USE_SYSTEM_PREFERRED_RNG lets the system choose its default
-    // RNG algorithm without us opening an explicit algorithm provider
-    // handle - the standard lightweight way to ask Windows for random
-    // bytes. Falls back to a coarse time-based value only if the OS call
-    // itself fails, which should not normally happen on any supported
-    // Windows version - this is not a cryptographic secret, just a local
-    // non-identifying tag, so that fallback is an acceptable last resort
-    // rather than a hard failure of the whole CLI.
-    let status = unsafe { BCryptGenRandom(None, &mut bytes, BCRYPT_USE_SYSTEM_PREFERRED_RNG) };
-    if status.0 != 0 {
+    // `getrandom` calls the OS's own CSPRNG directly on every supported
+    // platform (BCryptGenRandom on Windows, getentropy/arc4random on
+    // macOS, getrandom(2)/urandom on Linux) - never a bundled PRNG.
+    // Falls back to a coarse time-based value only if the OS call itself
+    // fails, which should not normally happen on any supported platform
+    // - this is not a cryptographic secret, just a local non-identifying
+    // tag, so that fallback is an acceptable last resort rather than a
+    // hard failure of the whole CLI.
+    if getrandom::getrandom(&mut bytes).is_err() {
         let fallback: u128 = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())

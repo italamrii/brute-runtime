@@ -3,14 +3,26 @@ name = "brute"
 version = "0.1.0"
 edition = "2024"
 
+# Cross-platform dependencies - available (and compiled) on every target.
+# raw-cpuid is included here (not architecture-gated): the crate itself
+# already degrades to reporting no CPUID-derived features on non-x86
+# targets (e.g. Apple Silicon) rather than failing to compile - see
+# hardware/cpu.rs.
 [dependencies]
 chrono = { version = "0.4.45", features = ["serde"] }
 clap = { version = "4.6.2", features = ["derive"] }
+dirs = "5"
+getrandom = "0.2"
 raw-cpuid = "11.6.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 sha2 = "0.11.0"
 sysinfo = "0.39.6"
 thiserror = "2.0.18"
-windows = { version = "0.62.2", features = ["Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_System_SystemInformation", "Win32_System_Registry", "Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_Storage_FileSystem", "Win32_System_WindowsProgramming", "Win32_Security", "Win32_System_Power", "Win32_Security_Cryptography"] }
+
+# Windows-only: Win32 API bindings (DXGI GPU enumeration, registry OS
+# version, GetSystemPowerStatus, GetDiskFreeSpaceExW, GlobalMemoryStatusEx).
+# See src/platform/windows.rs - the only place these are used.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_System_SystemInformation", "Win32_System_Registry", "Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_Storage_FileSystem", "Win32_System_WindowsProgramming", "Win32_Security", "Win32_System_Power"] }
 winreg = "0.56.0"

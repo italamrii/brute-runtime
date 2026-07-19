@@ -4,6 +4,7 @@
 //! direct `cpuid` through the `raw_cpuid` crate.
 
 use super::{CpuReport, HardwareField};
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use raw_cpuid::CpuId;
 use sysinfo::System;
 
@@ -46,7 +47,12 @@ pub fn inspect_cpu() -> CpuReport {
 
 /// Instruction-set extensions that matter for llama.cpp's ggml CPU backend
 /// (it dispatches SIMD kernels based on these at runtime). Reads real
-/// `cpuid` leaves - never a heuristic.
+/// `cpuid` leaves - never a heuristic. `cpuid` is an x86/x86_64-only
+/// instruction; on other architectures (e.g. Apple Silicon, ARM Linux)
+/// this honestly reports no x86 SIMD extensions rather than guessing -
+/// llama.cpp's ARM (NEON) kernel dispatch is a separate, not-yet-modeled
+/// concern (see docs/known-limitations.md).
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn detect_instruction_sets() -> Vec<String> {
     let cpuid = CpuId::new();
     let mut sets = Vec::new();
@@ -104,6 +110,11 @@ fn detect_instruction_sets() -> Vec<String> {
     }
 
     sets
+}
+
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+fn detect_instruction_sets() -> Vec<String> {
+    Vec::new()
 }
 
 #[cfg(test)]

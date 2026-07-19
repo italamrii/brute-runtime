@@ -6,7 +6,7 @@ pub mod cpu;
 pub mod gpu;
 pub mod memory;
 pub mod power;
-pub mod windows;
+pub mod system;
 
 use serde::Serialize;
 
@@ -148,11 +148,11 @@ pub struct HardwareReport {
 /// storage check (e.g. when no model path is known yet).
 pub fn inspect(storage_path: Option<&std::path::Path>) -> HardwareReport {
     HardwareReport {
-        os: windows::inspect_os(),
+        os: system::inspect_os(),
         cpu: cpu::inspect_cpu(),
         memory: memory::inspect_memory(),
         gpu: gpu::inspect_gpu(),
-        storage: storage_path.map(windows::inspect_storage),
+        storage: storage_path.map(system::inspect_storage),
         power: power::inspect_power(),
     }
 }

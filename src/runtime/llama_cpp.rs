@@ -81,12 +81,16 @@ pub fn verify_llama_binary(
     }
 }
 
+/// The `.exe` suffix is only present on Windows -
+/// `std::env::consts::EXE_SUFFIX` is the standard library's own
+/// platform-correct constant for this (empty string on macOS/Linux),
+/// rather than a hand-written `cfg(target_os)` branch.
 pub fn llama_bench_path(binary_dir: &Path) -> PathBuf {
-    binary_dir.join("llama-bench.exe")
+    binary_dir.join(format!("llama-bench{}", std::env::consts::EXE_SUFFIX))
 }
 
 pub fn llama_cli_path(binary_dir: &Path) -> PathBuf {
-    binary_dir.join("llama-cli.exe")
+    binary_dir.join(format!("llama-cli{}", std::env::consts::EXE_SUFFIX))
 }
 
 fn backend_gpu_layers(backend: Backend, requested: u32) -> u32 {

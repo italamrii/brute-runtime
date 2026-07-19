@@ -1118,7 +1118,7 @@ fn cmd_tune_run(
         &runner_config,
         || hardware::memory::sample_bytes().map(|(_, avail)| avail),
         || {
-            hardware::windows::inspect_storage(&model_path)
+            hardware::system::inspect_storage(&model_path)
                 .free_bytes
                 .value
         },
