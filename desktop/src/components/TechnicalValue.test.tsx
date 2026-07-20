@@ -51,4 +51,46 @@ describe("TechnicalValue", () => {
     render(<TechnicalValue title={fullHash}>{fullHash.slice(0, 12)}…</TechnicalValue>);
     expect(screen.getByTitle(fullHash)).toBeInTheDocument();
   });
+
+  it("keeps a profile ID ltr and unreordered under Arabic RTL", () => {
+    const profileId = "profile-instance-f052be34d631ff2889844a7551eea020";
+    render(
+      <div dir="rtl">
+        <TechnicalValue>{profileId}</TechnicalValue>
+      </div>,
+    );
+    const el = screen.getByText(profileId);
+    expect(el).toHaveAttribute("dir", "ltr");
+    expect(el.textContent).toBe(profileId);
+  });
+
+  it("keeps a raw enum value ltr under Arabic RTL", () => {
+    render(
+      <div dir="rtl">
+        <TechnicalValue>local_unverified_source</TechnicalValue>
+      </div>,
+    );
+    expect(screen.getByText("local_unverified_source")).toHaveAttribute("dir", "ltr");
+  });
+
+  it("keeps a model identifier ltr under Arabic RTL", () => {
+    render(
+      <div dir="rtl">
+        <TechnicalValue>Qwen2.5-0.5B-Instruct-Q4_K_M</TechnicalValue>
+      </div>,
+    );
+    expect(screen.getByText("Qwen2.5-0.5B-Instruct-Q4_K_M")).toHaveAttribute("dir", "ltr");
+  });
+
+  it("renders identically (still dir=ltr) when the surrounding page is English LTR, not just Arabic RTL", () => {
+    const path = "\\\\?\\C:\\Models\\qwen.gguf";
+    render(
+      <div dir="ltr">
+        <TechnicalValue>{path}</TechnicalValue>
+      </div>,
+    );
+    const el = screen.getByText(path);
+    expect(el).toHaveAttribute("dir", "ltr");
+    expect(el.textContent).toBe(path);
+  });
 });

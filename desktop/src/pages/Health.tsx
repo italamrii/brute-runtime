@@ -3,6 +3,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "../i18n/I18nContext";
 import { auditLibrary, exportLibrary, listLibrary, unquarantineModel } from "../lib/api";
 import type { AuditReport, LibraryEntry } from "../lib/types";
+import { TechnicalValue } from "../components/TechnicalValue";
 
 function IssueBlock({
   title,
@@ -32,7 +33,9 @@ function IssueBlock({
       </p>
       <ul className="issue-list">
         {items.map((id) => (
-          <li key={id}>{id}</li>
+          <TechnicalValue as="li" key={id}>
+            {id}
+          </TechnicalValue>
         ))}
       </ul>
     </div>
@@ -174,12 +177,12 @@ export function Health() {
               )}
               {report.stale_profiles.map((n) => (
                 <p key={n.library_id} className="text-tertiary" style={{ marginBottom: 6 }}>
-                  {n.library_id}: {n.detail}
+                  <TechnicalValue as="span">{n.library_id}</TechnicalValue>: {n.detail}
                 </p>
               ))}
               {report.stale_calibrations.map((n) => (
                 <p key={`cal-${n.library_id}`} className="text-tertiary" style={{ marginBottom: 6 }}>
-                  {n.library_id}: {n.detail}
+                  <TechnicalValue as="span">{n.library_id}</TechnicalValue>: {n.detail}
                 </p>
               ))}
 
@@ -190,7 +193,7 @@ export function Health() {
               ) : (
                 report.privacy_concerns.map((p, i) => (
                   <p key={i} className="text-tertiary">
-                    {p.library_id} — {p.field}: {p.detail}
+                    <TechnicalValue as="span">{p.library_id}</TechnicalValue> — {p.field}: {p.detail}
                   </p>
                 ))
               )}
@@ -202,7 +205,10 @@ export function Health() {
                   </div>
                   {report.duplicate_groups.map((g) => (
                     <div key={g.sha256} className="text-tertiary mono">
-                      {g.sha256.slice(0, 12)}… — {g.members.length} {t("health_copies")}
+                      <TechnicalValue as="span" title={g.sha256}>
+                        {g.sha256.slice(0, 12)}…
+                      </TechnicalValue>{" "}
+                      — {g.members.length} {t("health_copies")}
                     </div>
                   ))}
                 </div>
@@ -226,7 +232,7 @@ export function Health() {
               {quarantined.map((e) => (
                 <div key={e.library_id} className="kv-row">
                   <span>
-                    {e.alias ?? e.current_path.split(/[\\/]/).pop()} —{" "}
+                    <TechnicalValue as="span">{e.alias ?? e.current_path.split(/[\\/]/).pop()}</TechnicalValue> —{" "}
                     <span className="text-tertiary">{e.quarantine?.reason}</span>
                   </span>
                   <button

@@ -6,6 +6,7 @@ import type { BuildEvaluation, FitState, ModelBuild, TaskCategory } from "../lib
 import { formatBytes } from "../lib/format";
 import { checkUrlSafety } from "../lib/urlSafety";
 import { Modal } from "../components/Modal";
+import { TechnicalValue } from "../components/TechnicalValue";
 
 interface CatalogRow {
   build: ModelBuild;
@@ -177,9 +178,9 @@ export function Discover() {
                 <div className="metric-card-value" style={{ fontSize: 15 }}>
                   {build.display_name}
                 </div>
-                <div className="metric-card-sub">
+                <TechnicalValue as="div" className="metric-card-sub">
                   {build.parameter_count.toLocaleString()} · {build.quantization} · {formatBytes(build.file_size_bytes)}
-                </div>
+                </TechnicalValue>
                 <div className="metric-card-foot">
                   {build.task_categories.map((tc: TaskCategory) => (
                     <span key={tc} className="badge badge-unknown">
@@ -209,36 +210,48 @@ export function Discover() {
                   </p>
 
                   <dl style={{ margin: 0 }}>
-                    {[
-                      [t("discover_field_params"), selectedRow.build.parameter_count.toLocaleString()],
-                      [t("discover_field_quant"), selectedRow.build.quantization],
-                      [t("discover_field_size"), formatBytes(selectedRow.build.file_size_bytes)],
+                    {(
                       [
-                        t("discover_field_ram"),
-                        selectedRow.evaluation ? formatBytes(selectedRow.evaluation.estimate.estimated_total_ram_bytes_low) : "—",
-                      ],
-                      [
-                        t("discover_field_vram"),
-                        selectedRow.evaluation?.estimate.estimated_vram_bytes_low != null
-                          ? formatBytes(selectedRow.evaluation.estimate.estimated_vram_bytes_low)
-                          : t("common_unknown"),
-                      ],
-                      [
-                        t("discover_field_license"),
-                        selectedRow.build.license.status === "unknown" ? t("common_unknown") : selectedRow.build.license.identifier,
-                      ],
-                      [
-                        t("discover_field_commercial"),
-                        selectedRow.build.commercial_use === "allowed"
-                          ? t("discover_commercial_allowed")
-                          : selectedRow.build.commercial_use === "restricted"
-                            ? t("discover_commercial_restricted")
+                        [t("discover_field_params"), selectedRow.build.parameter_count.toLocaleString(), true],
+                        [t("discover_field_quant"), selectedRow.build.quantization, true],
+                        [t("discover_field_size"), formatBytes(selectedRow.build.file_size_bytes), true],
+                        [
+                          t("discover_field_ram"),
+                          selectedRow.evaluation ? formatBytes(selectedRow.evaluation.estimate.estimated_total_ram_bytes_low) : "—",
+                          true,
+                        ],
+                        [
+                          t("discover_field_vram"),
+                          selectedRow.evaluation?.estimate.estimated_vram_bytes_low != null
+                            ? formatBytes(selectedRow.evaluation.estimate.estimated_vram_bytes_low)
                             : t("common_unknown"),
-                      ],
-                    ].map(([label, value]) => (
+                          selectedRow.evaluation?.estimate.estimated_vram_bytes_low != null,
+                        ],
+                        [
+                          t("discover_field_license"),
+                          selectedRow.build.license.status === "unknown" ? t("common_unknown") : selectedRow.build.license.identifier,
+                          selectedRow.build.license.status !== "unknown",
+                        ],
+                        [
+                          t("discover_field_commercial"),
+                          selectedRow.build.commercial_use === "allowed"
+                            ? t("discover_commercial_allowed")
+                            : selectedRow.build.commercial_use === "restricted"
+                              ? t("discover_commercial_restricted")
+                              : t("common_unknown"),
+                          // Always a translated phrase, never a raw technical
+                          // token - never forced ltr.
+                          false,
+                        ],
+                      ] as [string, string, boolean][]
+                    ).map(([label, value, technical]) => (
                       <div key={label} className="kv-row">
                         <span className="kv-row-label">{label}</span>
-                        <span className="kv-row-value mono">{value}</span>
+                        {technical ? (
+                          <TechnicalValue className="kv-row-value mono">{value}</TechnicalValue>
+                        ) : (
+                          <span className="kv-row-value mono">{value}</span>
+                        )}
                       </div>
                     ))}
                   </dl>
@@ -285,11 +298,13 @@ export function Discover() {
                   </p>
                   <div className="kv-row">
                     <span className="kv-row-label">{t("discover_confirm_open_destination")}</span>
-                    <span className="kv-row-value mono">{checkUrlSafety(selectedRow.build.official_source_url).hostname}</span>
+                    <TechnicalValue className="kv-row-value mono">
+                      {checkUrlSafety(selectedRow.build.official_source_url).hostname}
+                    </TechnicalValue>
                   </div>
-                  <p className="text-tertiary" style={{ marginTop: 6, fontSize: 10.5, wordBreak: "break-all" }}>
+                  <TechnicalValue as="p" className="text-tertiary" style={{ marginTop: 6, fontSize: 10.5, wordBreak: "break-all" }}>
                     {selectedRow.build.official_source_url}
-                  </p>
+                  </TechnicalValue>
 
                   <div className="modal-actions">
                     <button

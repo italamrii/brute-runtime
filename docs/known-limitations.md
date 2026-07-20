@@ -537,7 +537,7 @@ for the entire first turn. Fixed in `desktop/src/pages/Chat.tsx` by also
 switching to the message-list branch while `running` is true, even with
 zero messages yet, so the generating indicator appears immediately.
 
-## Advanced Console / Run / Models / Profiles / Settings: technical values (paths, hashes) visually reordered under Arabic/RTL (found and fixed)
+## Advanced Console / Run / Models / Profiles / Settings / Discover / Hardware / Health: technical values (paths, hashes) visually reordered under Arabic/RTL (found and fixed)
 
 Found while verifying the new Advanced Console page: the resolved
 runtime binary path (which carries Windows' `\\?\` extended-length
@@ -548,18 +548,27 @@ values like `local_unverified_source`, model/profile identifiers)
 rendered in a plain `.kv-row-value.mono` span with no explicit
 `dir="ltr"`, so the browser's bidi algorithm reorders weak-direction
 characters (backslashes) according to the surrounding Arabic paragraph
-direction. Not new to Advanced Console - `Run.tsx`, `Models.tsx`,
-`Profiles.tsx`, and `Settings.tsx` rendered their own binary-path/hash/
-enum/ID values the exact same way, so the bug was pre-existing and
+direction. Not new to Advanced Console - every page that shows technical
+values rendered them the exact same way, so the bug was pre-existing and
 app-wide, not introduced by Phase A. Fixed with a shared
 `components/TechnicalValue.tsx` (`dir="ltr"` + CSS `unicode-bidi:
 isolate` - presentation-only, adds no characters to the DOM text, so
-copy/paste always yields the exact original string) applied across all
-five pages; native `<select><option>` elements (which can't hold a
-wrapper element) get `dir="ltr"` set directly instead. Regression tests
-cover Windows paths, SHA-256 hashes, and technical identifiers rendering
-correctly under Arabic RTL in `TechnicalValue.test.tsx` and each of the
-five pages' own test files. `Discover.tsx`, `Hardware.tsx`, `Health.tsx`,
-and `Optimize.tsx` render the same `kv-row-value` pattern and likely have
-the same latent issue, but were out of the requested scope for this
+copy/paste always yields the exact original string), applied across
+`AdvancedConsole.tsx`, `Run.tsx`, `Models.tsx`, `Profiles.tsx`,
+`Settings.tsx`, `Discover.tsx`, `Hardware.tsx`, and `Health.tsx`; native
+`<select><option>` elements (which can't hold a wrapper element) get
+`dir="ltr"` set directly instead. Values that are natural-language
+translated text mixed into the same list (e.g. Discover's commercial-use
+label, a duplicate-count sentence) are deliberately left unwrapped so
+Arabic phrasing keeps its normal reading order.
+
+Regression tests cover a Windows extended-length path (`\\?\C:\...`), a
+SHA-256 hash, a profile ID, a raw enum value, and a model identifier,
+each asserted under both Arabic RTL and English LTR, in
+`TechnicalValue.test.tsx` plus a dedicated case in each affected page's
+own test file (`Hardware.test.tsx` and `Health.test.tsx` were new -
+neither page had any test coverage before this).
+
+`Optimize.tsx` renders the same `kv-row-value` pattern and likely has
+the same latent issue, but was outside the requested scope for this
 pass.

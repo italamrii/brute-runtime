@@ -4,6 +4,7 @@ import { getHardwareProfile, listCalibrations } from "../lib/api";
 import type { Confidence, HardwareCapabilityProfile, CalibrationStore } from "../lib/types";
 import { formatBytes } from "../lib/format";
 import { ConfidenceBadge } from "../components/Badges";
+import { TechnicalValue } from "../components/TechnicalValue";
 
 function Row({
   label,
@@ -22,7 +23,7 @@ function Row({
         {label}
       </span>
       <span className="kv-row-value">
-        <span className="mono num path-text">{value}</span>
+        <TechnicalValue className="mono num path-text">{value}</TechnicalValue>
         {confidence && <ConfidenceBadge confidence={confidence} />}
       </span>
     </div>
@@ -62,24 +63,28 @@ export function Hardware() {
           <div className="summary-strip" style={{ marginBottom: 20 }}>
             <div className="summary-strip-item">
               <div className="summary-strip-label">{t("hardware_cpu")}</div>
-              <div className="summary-strip-value">{hw.cpu.brand.value ?? "—"}</div>
+              <TechnicalValue as="div" className="summary-strip-value">
+                {hw.cpu.brand.value ?? "—"}
+              </TechnicalValue>
             </div>
             <div className="summary-strip-item">
               <div className="summary-strip-label">{t("hardware_memory")}</div>
-              <div className="summary-strip-value num">{formatBytes(hw.memory.total_bytes.value)}</div>
+              <TechnicalValue as="div" className="summary-strip-value num">
+                {formatBytes(hw.memory.total_bytes.value)}
+              </TechnicalValue>
             </div>
             <div className="summary-strip-item">
               <div className="summary-strip-label">{t("hardware_gpu")}</div>
-              <div className="summary-strip-value">
+              <TechnicalValue as="div" className="summary-strip-value">
                 {hw.gpus[0]?.name ?? t("common_unavailable")}
                 {hw.gpus.length > 1 ? ` +${hw.gpus.length - 1}` : ""}
-              </div>
+              </TechnicalValue>
             </div>
             <div className="summary-strip-item">
               <div className="summary-strip-label">{t("hardware_os")}</div>
-              <div className="summary-strip-value">
+              <TechnicalValue as="div" className="summary-strip-value">
                 {hw.os.product_name.value ?? "—"} {hw.os.display_version.value ?? ""}
-              </div>
+              </TechnicalValue>
             </div>
             <div className="summary-strip-item">
               <div className="summary-strip-label">{t("hardware_calibration")}</div>
@@ -200,9 +205,9 @@ export function Hardware() {
                     value={formatBytes(hw.storage.total_bytes.value)}
                     confidence={hw.storage.total_bytes.confidence}
                   />
-                  <div className="path-text text-tertiary" style={{ marginTop: 8, fontSize: 10.5 }}>
+                  <TechnicalValue as="div" className="path-text text-tertiary" style={{ marginTop: 8, fontSize: 10.5 }}>
                     {hw.storage.path_queried}
-                  </div>
+                  </TechnicalValue>
                 </>
               ) : (
                 <div className="text-tertiary">{t("common_unavailable")}</div>

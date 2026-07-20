@@ -73,7 +73,8 @@ function evaluation(b: ModelBuild): BuildEvaluation {
   };
 }
 
-function renderDiscover() {
+function renderDiscover(lang: "en" | "ar" = "en") {
+  window.localStorage.setItem("brute.language", lang);
   return render(
     <I18nProvider>
       <Discover />
@@ -132,6 +133,25 @@ describe("Discover page — model card navigation safety", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("License")).toBeInTheDocument();
     expect(within(dialog).getAllByText("unknown").length).toBeGreaterThan(0);
+  });
+
+  it("keeps quantization, params, license, and the source URL forced ltr in the Arabic RTL details dialog", async () => {
+    const b = build({ license: { status: "known", identifier: "apache-2.0" } });
+    vi.mocked(listCatalog).mockResolvedValue([b]);
+    vi.mocked(evaluateFit).mockResolvedValue(evaluation(b));
+    renderDiscover("ar");
+    fireEvent.click(await screen.findByText("Test Model 7B"));
+    const dialog = await screen.findByRole("dialog");
+
+    expect(within(dialog).getByText("Q4_K_M")).toHaveAttribute("dir", "ltr");
+    expect(within(dialog).getByText("apache-2.0")).toHaveAttribute("dir", "ltr");
+    expect(within(dialog).getByText("7,000,000,000")).toHaveAttribute("dir", "ltr");
+
+    fireEvent.click(within(dialog).getByText(/فتح المصدر|Open official source/));
+    const hostname = await screen.findByText("huggingface.co");
+    expect(hostname).toHaveAttribute("dir", "ltr");
+    const fullUrl = screen.getByText("https://huggingface.co/example/test-model-gguf");
+    expect(fullUrl).toHaveAttribute("dir", "ltr");
   });
 
   it("Close button closes the modal and returns to the model grid", async () => {
