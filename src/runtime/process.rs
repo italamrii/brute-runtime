@@ -51,6 +51,25 @@ impl ProcessRun {
 
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
+/// `brute-desktop.exe` is a GUI-subsystem app (see `desktop/src-tauri/src/
+/// main.rs`'s `windows_subsystem = "windows"`), but `llama-cli.exe`/
+/// `llama-bench.exe` are console-subsystem binaries - spawning one without
+/// this flag makes Windows allocate and flash a new visible console window
+/// for every single launch (backend verification, tuning, benchmarking,
+/// local generation - all of them, every time). `CREATE_NO_WINDOW`
+/// (0x08000000) suppresses that window entirely while stdout/stderr piping
+/// continues to work exactly the same. A no-op on non-Windows targets,
+/// where this class of bug does not exist.
+#[cfg(windows)]
+pub(crate) fn configure_no_window(cmd: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+pub(crate) fn configure_no_window(_cmd: &mut Command) {}
+
 /// Spawns `binary` with `args`, waits up to `timeout`, and kills it on
 /// expiry or cancellation. `on_tick` is invoked on every poll iteration
 /// (roughly every `POLL_INTERVAL`) so a caller can sample metrics like
@@ -66,16 +85,16 @@ pub fn run(
         return Err(ProcessError::BinaryNotFound(binary.to_path_buf()));
     }
 
-    let mut child = Command::new(binary)
-        .args(args)
+    let mut cmd = Command::new(binary);
+    cmd.args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|source| ProcessError::SpawnFailed {
-            program: binary.to_path_buf(),
-            source,
-        })?;
+        .stderr(Stdio::piped());
+    configure_no_window(&mut cmd);
+    let mut child = cmd.spawn().map_err(|source| ProcessError::SpawnFailed {
+        program: binary.to_path_buf(),
+        source,
+    })?;
 
     let stdout_handle = child.stdout.take().expect("stdout was piped");
     let stderr_handle = child.stderr.take().expect("stderr was piped");
@@ -154,16 +173,16 @@ pub fn run_streaming(
         return Err(ProcessError::BinaryNotFound(binary.to_path_buf()));
     }
 
-    let mut child = Command::new(binary)
-        .args(args)
+    let mut cmd = Command::new(binary);
+    cmd.args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|source| ProcessError::SpawnFailed {
-            program: binary.to_path_buf(),
-            source,
-        })?;
+        .stderr(Stdio::piped());
+    configure_no_window(&mut cmd);
+    let mut child = cmd.spawn().map_err(|source| ProcessError::SpawnFailed {
+        program: binary.to_path_buf(),
+        source,
+    })?;
 
     let stdout_handle = child.stdout.take().expect("stdout was piped");
     let stderr_handle = child.stderr.take().expect("stderr was piped");
@@ -288,6 +307,26 @@ mod tests {
 
     fn cmd_exe() -> std::path::PathBuf {
         Path::new(r"C:\Windows\System32\cmd.exe").to_path_buf()
+    }
+
+    // `std::process::Command` has no getter for its Windows creation
+    // flags, so this can't assert CREATE_NO_WINDOW was actually recorded
+    // on a real `Command` - the real proof is dynamic verification in an
+    // installed build (see docs/known-limitations.md). What this *can*
+    // prove: applying the flag doesn't break spawning, piped stdio, or
+    // exit-code capture - the one way a wrong flag value would surface
+    // in an automated test.
+    #[cfg(windows)]
+    #[test]
+    fn configure_no_window_does_not_break_spawning_or_captured_output() {
+        let mut cmd = Command::new(cmd_exe());
+        cmd.args(["/C", "echo still-works"]).stdout(Stdio::piped());
+        configure_no_window(&mut cmd);
+        let output = cmd
+            .output()
+            .expect("cmd.exe should still spawn with CREATE_NO_WINDOW set");
+        assert!(output.status.success());
+        assert!(String::from_utf8_lossy(&output.stdout).contains("still-works"));
     }
 
     #[test]

@@ -459,3 +459,39 @@ is a deliberate, documented scope cut.
   branches), rapid double-click, and a real OS-level Escape keypress all
   confirmed single-window, no crash, stable ~43 MB memory, no orphan
   processes.
+
+## Console-window flashing (found and fixed)
+
+A real, confirmed bug: `brute-desktop.exe` is correctly built as a
+Windows GUI-subsystem app (`windows_subsystem = "windows"` in
+`desktop/src-tauri/src/main.rs`), but every child process it launches -
+`llama-cli.exe`/`llama-bench.exe` via `runtime::process::run`/
+`run_streaming` (backend verification, tuning, benchmarking, local
+generation - every single invocation), plus `nvidia-smi.exe`/
+`vulkaninfo.exe` via `hardware::gpu` (hardware detection, run on every
+app launch) - are console-subsystem binaries. Spawning a console-
+subsystem child from a GUI-subsystem parent without `CREATE_NO_WINDOW`
+makes Windows allocate and flash a new visible console window for that
+child. Fixed by adding `runtime::process::configure_no_window` (applies
+`CREATE_NO_WINDOW` via `std::os::windows::process::CommandExt::
+creation_flags` on Windows, a no-op elsewhere) at every one of these
+call sites, plus a structural guard test in both crates
+(`no_window_flash_guard_test.rs`) that scans all source files for
+`Command::new(` and fails if the same file doesn't also call
+`configure_no_window`, so a future process launch can't silently
+reintroduce the flash. `std::process::Command` has no getter for its own
+Windows creation flags, so this can only be proven by dynamic testing in
+an installed build, not a pure unit test - proven for real in a freshly
+rebuilt installed NSIS build via parent-process-scoped monitoring
+(`Get-CimInstance Win32_Process` walking the parent chain back to
+`brute-desktop.exe`'s PID, plus `EnumWindows`/`IsWindowVisible` on every
+detected descendant) while driving the app through Hardware-page GPU
+detection and an actual local model generation (real prompt "hello"
+against the real imported Qwen2.5-0.5B-Instruct model, streamed
+end-to-end into the in-app output panel: "Prompt: 360.6 t/s |
+Generation: 56.2 t/s"). Both `nvidia-smi.exe`/`vulkaninfo.exe` (Hardware
+page) and the real `llama-cli.exe` run each spawned their normal/expected
+`conhost.exe` host process (`CREATE_NO_WINDOW` suppresses the *window*,
+not conhost creation itself, which is correct Windows behavior) but every
+one of them had zero visible windows at any point in the monitoring
+window - confirming no console ever flashed.

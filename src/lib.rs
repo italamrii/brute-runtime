@@ -31,6 +31,8 @@ pub mod security;
 pub mod tuning;
 
 #[cfg(test)]
+mod no_window_flash_guard_test;
+#[cfg(test)]
 mod stage1_fixtures_test;
 #[cfg(test)]
 mod stage3_performance_test;

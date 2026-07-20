@@ -23,8 +23,10 @@ pub fn inspect_gpu() -> GpuReport {
 /// shared rather than duplicated per platform.
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 pub(crate) fn query_nvidia_smi() -> Result<Vec<(String, String)>, String> {
-    let output = Command::new("nvidia-smi")
-        .args(["--query-gpu=name,driver_version", "--format=csv,noheader"])
+    let mut cmd = Command::new("nvidia-smi");
+    cmd.args(["--query-gpu=name,driver_version", "--format=csv,noheader"]);
+    crate::runtime::process::configure_no_window(&mut cmd);
+    let output = cmd
         .output()
         .map_err(|e| format!("failed to launch nvidia-smi: {e}"))?;
 
@@ -50,10 +52,10 @@ pub(crate) fn query_nvidia_smi() -> Result<Vec<(String, String)>, String> {
 /// `platform::*::detect_vulkan` falls back to its own OS-specific
 /// loader-presence check when this returns `false`.
 pub(crate) fn vulkaninfo_reports_success() -> bool {
-    Command::new("vulkaninfo")
-        .arg("--summary")
-        .output()
-        .is_ok_and(|output| output.status.success())
+    let mut cmd = Command::new("vulkaninfo");
+    cmd.arg("--summary");
+    crate::runtime::process::configure_no_window(&mut cmd);
+    cmd.output().is_ok_and(|output| output.status.success())
 }
 
 #[cfg(test)]

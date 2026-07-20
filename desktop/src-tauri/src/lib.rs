@@ -1,4 +1,6 @@
 mod commands;
+#[cfg(test)]
+mod no_window_flash_guard_test;
 mod paths;
 mod state;
 
