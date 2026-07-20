@@ -82,6 +82,12 @@ pub fn run() {
             commands::discovery::scan_common_model_locations,
             commands::download::download_model,
             commands::download::cancel_download,
+            commands::conversations::conversations_list,
+            commands::conversations::conversations_show,
+            commands::conversations::conversations_create,
+            commands::conversations::conversations_save,
+            commands::conversations::conversations_delete,
+            commands::conversations::conversations_clear_all,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

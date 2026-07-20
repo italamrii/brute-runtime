@@ -14,6 +14,7 @@ pub mod benchmark;
 pub mod calibration;
 pub mod catalog;
 pub mod cli;
+pub mod conversations;
 pub mod errors;
 pub mod estimator;
 pub mod fit;

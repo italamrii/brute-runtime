@@ -227,3 +227,37 @@ pub enum LibraryError {
     #[error("scan directory does not exist or is not a directory: {0}")]
     InvalidScanRoot(PathBuf),
 }
+
+/// Errors from `conversations::` (local Chat history storage) - mirrors
+/// `LibraryError`'s shape (every variant a concrete failure mode, never
+/// a generic "serde failed") with messages that correctly describe a
+/// conversation file rather than reusing `LibraryError`'s "library
+/// index" wording.
+#[derive(Debug, Error)]
+pub enum ConversationError {
+    #[error("failed to read conversation {path}: {source}")]
+    Read {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("failed to write conversation {path}: {source}")]
+    Write {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error(
+        "conversation {path} is not valid JSON or does not match the expected schema: {source}"
+    )]
+    Parse {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+
+    #[error("no conversation with id {0:?}")]
+    NotFound(String),
+}

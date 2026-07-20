@@ -7,6 +7,7 @@
 
 pub mod backends;
 pub mod catalog;
+pub mod conversations;
 pub mod discovery;
 pub mod download;
 pub mod hardware;
