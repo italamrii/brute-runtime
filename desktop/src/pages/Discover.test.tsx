@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n/I18nContext";
@@ -39,7 +40,7 @@ function build(overrides: Partial<ModelBuild> = {}): ModelBuild {
     short_description: "A test model.",
     strength: "General purpose.",
     limitation: "None noted.",
-    license: "unknown",
+    license: { status: "known", identifier: "apache-2.0" },
     commercial_use: "unknown",
     gated_access: null,
     metadata_provenance: "test fixture",
@@ -101,6 +102,36 @@ describe("Discover page — model card navigation safety", () => {
     fireEvent.click(await screen.findByText("Test Model 7B"));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Q4_K_M")).toBeInTheDocument();
+  });
+
+  // Regression test for a real crash found in the installed build: the
+  // real Rust `License` enum serializes as {"status":"known","identifier"}
+  // or {"status":"unknown"} (verified directly against
+  // data/catalog/dev-catalog.json) - an earlier, wrong TS type/ternary
+  // assumed a bare "unknown" string or {known:{identifier}}, which threw
+  // on every real catalog entry and crashed the whole React tree with no
+  // recovery. This fixture intentionally uses the real wire shape for
+  // both license variants so a future shape mismatch fails here instead
+  // of only in a live installed build.
+  it("renders a known-license model's details without crashing", async () => {
+    const b = build({ license: { status: "known", identifier: "apache-2.0" } });
+    vi.mocked(listCatalog).mockResolvedValue([b]);
+    vi.mocked(evaluateFit).mockResolvedValue(evaluation(b));
+    renderDiscover();
+    fireEvent.click(await screen.findByText("Test Model 7B"));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("apache-2.0")).toBeInTheDocument();
+  });
+
+  it("renders an unknown-license model's details without crashing", async () => {
+    const b = build({ license: { status: "unknown" } });
+    vi.mocked(listCatalog).mockResolvedValue([b]);
+    vi.mocked(evaluateFit).mockResolvedValue(evaluation(b));
+    renderDiscover();
+    fireEvent.click(await screen.findByText("Test Model 7B"));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("License")).toBeInTheDocument();
+    expect(within(dialog).getAllByText("unknown").length).toBeGreaterThan(0);
   });
 
   it("Close button closes the modal and returns to the model grid", async () => {
@@ -184,5 +215,81 @@ describe("Discover page — model card navigation safety", () => {
     await screen.findByText("This link was not opened");
     fireEvent.click(screen.getByText("Back"));
     expect(await screen.findByText("Q4_K_M")).toBeInTheDocument();
+  });
+
+  it("the 'verified source only' filter actually excludes unknown-license models", async () => {
+    const known = build({ catalog_id: "known-1", display_name: "Known License Model" });
+    const unknown = build({
+      catalog_id: "unknown-1",
+      display_name: "Unknown License Model",
+      license: { status: "unknown" },
+    });
+    vi.mocked(listCatalog).mockResolvedValue([known, unknown]);
+    vi.mocked(evaluateFit).mockImplementation(async (id: string) =>
+      evaluation(id === "known-1" ? known : unknown),
+    );
+    renderDiscover();
+    await screen.findByText("Known License Model");
+    expect(screen.getByText("Unknown License Model")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Verified source only"));
+    expect(screen.getByText("Known License Model")).toBeInTheDocument();
+    expect(screen.queryByText("Unknown License Model")).not.toBeInTheDocument();
+  });
+
+  it("a single click creates exactly one dialog, never more", async () => {
+    renderDiscover();
+    fireEvent.click(await screen.findByText("Test Model 7B"));
+    await screen.findByRole("dialog");
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  });
+
+  it("rapid double click on the same card still creates exactly one dialog", async () => {
+    renderDiscover();
+    const card = await screen.findByText("Test Model 7B");
+    fireEvent.click(card);
+    fireEvent.click(card);
+    await screen.findByRole("dialog");
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  });
+
+  it("repeated open/close cycles never accumulate extra dialogs", async () => {
+    renderDiscover();
+    const card = await screen.findByText("Test Model 7B");
+    for (let i = 0; i < 5; i++) {
+      fireEvent.click(card);
+      await screen.findByRole("dialog");
+      expect(screen.getAllByRole("dialog")).toHaveLength(1);
+      fireEvent.click(screen.getAllByText("Close")[0]);
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    }
+  });
+
+  it("repeated open/close cycles never leak Escape-key listeners (closes cleanly every time)", async () => {
+    renderDiscover();
+    const card = await screen.findByText("Test Model 7B");
+    for (let i = 0; i < 3; i++) {
+      fireEvent.click(card);
+      await screen.findByRole("dialog");
+      fireEvent.keyDown(window, { key: "Escape" });
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    }
+    // If a prior cycle's listener leaked, closing would now double-fire
+    // side effects (harmless here) but never a second/duplicate dialog.
+    expect(screen.queryAllByRole("dialog")).toHaveLength(0);
+  });
+
+  it("survives React.StrictMode's double-invoked effects without duplicating the dialog", async () => {
+    render(
+      <StrictMode>
+        <I18nProvider>
+          <Discover />
+        </I18nProvider>
+      </StrictMode>,
+    );
+    fireEvent.click(await screen.findByText("Test Model 7B"));
+    await screen.findByRole("dialog");
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });

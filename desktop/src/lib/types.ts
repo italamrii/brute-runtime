@@ -128,7 +128,11 @@ export interface BackendVerification {
 
 export type TaskCategory = "general_chat" | "coding" | "arabic_chat" | "reasoning";
 
-export type License = { known: { identifier: string } } | "unknown";
+// Mirrors the Rust `#[serde(tag = "status", rename_all = "snake_case")]`
+// internally-tagged enum exactly: always an object with a `status` field,
+// never a bare string - confirmed against the real wire format in
+// data/catalog/dev-catalog.json (e.g. {"status":"known","identifier":"apache-2.0"}).
+export type License = { status: "known"; identifier: string } | { status: "unknown" };
 export type CommercialUse = "allowed" | "restricted" | "unknown";
 
 export interface ModelBuild {

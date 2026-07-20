@@ -424,3 +424,38 @@ is a deliberate, documented scope cut.
   older build of this codebase (predating the current `Discover.tsx`/
   `openUrl` implementation), this note should be read as "fixed at the
   architecture level," not "root cause confirmed."
+- **A real, 100%-reproducible crash was found and fixed while
+  investigating a "Discover Models opens cascading windows" report.**
+  Dynamic testing in the installed NSIS build (UI Automation clicks +
+  screenshot capture, since this environment has no interactive GUI
+  access) found no actual native-window duplication - `Get-Process`/
+  `EnumWindows` confirmed exactly one process and one window throughout;
+  a one-off cascaded-title-bars screenshot turned out to be a transient
+  DWM compositing artifact from the diagnostic script's own
+  `SetForegroundWindow`/`ShowWindow` calls, gone on the very next
+  capture. The real bug: clicking *any* model card blanked the entire
+  window to solid black (confirmed via screenshot; the accessibility
+  tree collapsed to ~18 generic elements, i.e. an unmounted React tree).
+  Root cause: `desktop/src/lib/types.ts`'s `License` type
+  (`{known:{identifier}} | "unknown"`) did not match the real Rust
+  `#[serde(tag = "status", rename_all = "snake_case")]` wire format
+  (`{"status":"known","identifier":...}` / `{"status":"unknown"}`,
+  confirmed directly against `data/catalog/dev-catalog.json`) -
+  `Discover.tsx`'s license ternary always took its "not unknown" branch
+  (comparing an object to a string is always false) and read
+  `.known.identifier` off an object that never has a `.known` property,
+  throwing on *every* catalog entry with no Error Boundary anywhere to
+  catch it, unmounting the whole app. Fixed by correcting the type, both
+  call sites (the crash and a silently-broken "verified source only"
+  filter that used the same wrong comparison), adding
+  `desktop/src/components/ErrorBoundary.tsx` as a structural safeguard
+  (a future render error of this class now shows a recoverable "Back to
+  Overview" panel instead of blanking the app), and adding
+  `desktop/src/structuralGuards.test.ts`, which scans every frontend
+  source file for `WebviewWindow`/`window.open`/`target="_blank"`/etc.
+  so a real multi-window regression would be caught even though this
+  particular report wasn't actually one. Re-verified in a freshly
+  rebuilt installed NSIS build: all 7 catalog cards (both license
+  branches), rapid double-click, and a real OS-level Escape keypress all
+  confirmed single-window, no crash, stable ~43 MB memory, no orphan
+  processes.

@@ -105,7 +105,7 @@ export function Discover() {
         if (filters.arabic && !build.task_categories.includes("arabic_chat")) return false;
         if (filters.coding && !build.task_categories.includes("coding")) return false;
         if (filters.generalUse && !build.task_categories.includes("general_chat")) return false;
-        if (filters.verifiedSourceOnly && build.license === "unknown") return false;
+        if (filters.verifiedSourceOnly && build.license.status === "unknown") return false;
         return true;
       })
       .sort((a, b) => {
@@ -225,7 +225,7 @@ export function Discover() {
                       ],
                       [
                         t("discover_field_license"),
-                        selectedRow.build.license === "unknown" ? t("common_unknown") : selectedRow.build.license.known.identifier,
+                        selectedRow.build.license.status === "unknown" ? t("common_unknown") : selectedRow.build.license.identifier,
                       ],
                       [
                         t("discover_field_commercial"),
