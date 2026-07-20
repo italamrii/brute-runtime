@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes, formatPercent, formatTokensPerSecond, shortHash } from "./format";
+import { formatBytes, formatParamCount, formatPercent, formatTokensPerSecond, shortHash } from "./format";
 
 describe("formatBytes", () => {
   it("renders an em dash for missing values instead of 0 or NaN", () => {
@@ -15,6 +15,24 @@ describe("formatBytes", () => {
     expect(formatBytes(1024)).toBe("1.0 KB");
     expect(formatBytes(1536)).toBe("1.5 KB");
     expect(formatBytes(3 * 1024 * 1024 * 1024)).toBe("3.0 GB");
+  });
+});
+
+describe("formatParamCount", () => {
+  it("renders an em dash for missing values", () => {
+    expect(formatParamCount(null)).toBe("—");
+    expect(formatParamCount(undefined)).toBe("—");
+  });
+
+  it("abbreviates millions and billions", () => {
+    expect(formatParamCount(5_000_000)).toBe("5.0M");
+    expect(formatParamCount(630_000_000)).toBe("630M");
+    expect(formatParamCount(7_000_000_000)).toBe("7.0B");
+    expect(formatParamCount(70_000_000_000)).toBe("70B");
+  });
+
+  it("leaves small counts as a plain grouped number", () => {
+    expect(formatParamCount(1234)).toBe("1,234");
   });
 });
 

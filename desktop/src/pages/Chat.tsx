@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useI18n } from "../i18n/I18nContext";
 import { useAppStatus } from "../lib/AppStatusContext";
 import { Markdown } from "../components/Markdown";
+import { formatBytes, formatParamCount, formatTokensPerSecond } from "../lib/format";
 import {
   clearAllConversations,
   createConversation,
@@ -73,6 +74,29 @@ function extractAssistantReply(raw: string): string {
   const statsIndex = reply.indexOf("[ Prompt:");
   if (statsIndex !== -1) reply = reply.slice(0, statsIndex);
   return reply.trim();
+}
+
+/** Real, already-known facts only (architecture/quantization/size/trust
+ * state from the imported file, measured tok/s from actual tuning runs) -
+ * no fabricated "Arabic capability," "task fit," or "device compatibility"
+ * scoring. That kind of ranking needs the multi-family catalog/ranking
+ * engine, which is a later, separate stage - not implemented here. */
+function formatModelOption(m: LibraryEntry): string {
+  const name = m.alias ?? m.current_path.split(/[\\/]/).pop() ?? m.library_id;
+  const parts = [m.quantization ?? "?", formatParamCount(m.parameter_count), formatBytes(m.file_size_bytes)];
+  let label = `${name} — ${parts.join(" · ")}`;
+  if (m.file_status !== "unchanged") label += ` ⚠ ${m.file_status}`;
+  return label;
+}
+
+function formatProfileOption(p: RuntimeProfile): string {
+  const parts = [p.backend, `${p.threads} threads`, `${p.context_size} ctx`];
+  if (p.mean_generation_tokens_per_second !== null) {
+    parts.push(formatTokensPerSecond(p.mean_generation_tokens_per_second));
+  }
+  let label = parts.join(" · ");
+  if (p.stability !== "stable") label += ` ⚠ ${p.stability}`;
+  return label;
 }
 
 export function Chat() {
@@ -352,6 +376,8 @@ export function Chat() {
   }
 
   const ready = Boolean(modelId && profileId && status.llamaBinPath);
+  const selectedModel = useMemo(() => models.find((m) => m.library_id === modelId) ?? null, [models, modelId]);
+  const selectedProfile = useMemo(() => profiles.find((p) => p.profile_id === profileId) ?? null, [profiles, profileId]);
   const suggestions = [
     t("chat_suggestion_1"),
     t("chat_suggestion_2"),
@@ -452,7 +478,7 @@ export function Chat() {
               <option value="">{t("chat_select_model_placeholder")}</option>
               {models.map((m) => (
                 <option key={m.library_id} value={m.library_id}>
-                  {m.alias ?? m.current_path.split(/[\\/]/).pop()}
+                  {formatModelOption(m)}
                 </option>
               ))}
             </select>
@@ -465,10 +491,16 @@ export function Chat() {
               >
                 {profiles.map((p) => (
                   <option key={p.profile_id} value={p.profile_id}>
-                    {p.profile_id} ({p.backend})
+                    {formatProfileOption(p)}
                   </option>
                 ))}
               </select>
+            )}
+            {selectedModel && (
+              <span className="chat-model-meta" title={selectedModel.trust}>
+                {selectedModel.architecture ?? "?"}
+                {selectedProfile?.confidence ? ` · ${selectedProfile.confidence}` : ""}
+              </span>
             )}
           </div>
 

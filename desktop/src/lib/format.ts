@@ -7,6 +7,13 @@ export function formatBytes(bytes: number | null | undefined): string {
   return `${value >= 100 || exp === 0 ? Math.round(value) : value.toFixed(1)} ${units[exp]}`;
 }
 
+export function formatParamCount(n: number | null | undefined): string {
+  if (n === null || n === undefined) return "—";
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(n >= 10_000_000_000 ? 0 : 1)}B`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
+  return n.toLocaleString();
+}
+
 export function formatTokensPerSecond(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";
   return `${value.toFixed(1)} tok/s`;

@@ -249,6 +249,28 @@ describe("Chat page", () => {
     expect(args.profile_id).toBe("profile-1");
   });
 
+  it("shows real model/profile facts (quantization, size, speed, trust) in the picker, not fabricated scoring", async () => {
+    renderChat();
+    await screen.findByText("Existing chat");
+    fireEvent.click(screen.getByText("Existing chat"));
+    await waitFor(() => expect(showConversation).toHaveBeenCalledWith("conv-1"));
+
+    const modelSelect = screen.getByLabelText("Model") as HTMLSelectElement;
+    const modelOption = within(modelSelect).getByText(/Qwen2\.5 0\.5B/);
+    expect(modelOption.textContent).toContain("Q4_K_M");
+    expect(modelOption.textContent).toContain("500M");
+    expect(modelOption.textContent).toContain("477 MB");
+
+    const profileSelect = (await screen.findByLabelText("Runtime profile")) as HTMLSelectElement;
+    const profileOption = within(profileSelect).getByText(/cpu/);
+    expect(profileOption.textContent).toContain("8 threads");
+    expect(profileOption.textContent).toContain("4096 ctx");
+    expect(profileOption.textContent).toContain("40.0 tok/s");
+
+    expect(screen.getByTitle("local_unverified_source")).toHaveTextContent("qwen2");
+    expect(screen.getByTitle("local_unverified_source")).toHaveTextContent("high");
+  });
+
   it("streams assistant output as local-run-chunk events arrive", async () => {
     vi.mocked(localRunGenerate).mockImplementation(async () => {
       emit("local-run-chunk", "Hello");

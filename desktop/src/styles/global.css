@@ -1782,6 +1782,12 @@ table.data-table {
   font-size: var(--type-support);
   max-width: 260px;
 }
+.chat-model-meta {
+  align-self: center;
+  font-size: var(--type-support);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
 
 .chat-topbar-right {
   display: flex;
