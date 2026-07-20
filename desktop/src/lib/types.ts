@@ -692,3 +692,37 @@ export interface DiscoveryResult {
   path: string;
   scan: ScanResult;
 }
+
+// --- Local Chat conversation history ---------------------------------------
+// Mirrors brute::conversations exactly - a plain (non-tagged) struct on
+// the Rust side, so these fields map directly with no discriminant games.
+
+export type MessageRole = "user" | "assistant";
+
+export interface ConversationMessage {
+  message_id: string;
+  role: MessageRole;
+  content: string;
+  created_at_rfc3339: string;
+}
+
+export interface Conversation {
+  conversation_id: string;
+  schema_version: string;
+  title: string;
+  created_at_rfc3339: string;
+  updated_at_rfc3339: string;
+  library_id: string | null;
+  profile_id: string | null;
+  language: string | null;
+  messages: ConversationMessage[];
+}
+
+export interface ConversationSummary {
+  conversation_id: string;
+  title: string;
+  created_at_rfc3339: string;
+  updated_at_rfc3339: string;
+  message_count: number;
+  library_id: string | null;
+}

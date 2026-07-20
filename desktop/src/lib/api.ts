@@ -13,6 +13,8 @@ import type {
   BackendVerification,
   CalibrationStore,
   CommonLocation,
+  Conversation,
+  ConversationSummary,
   DiscoveryResult,
   DuplicateGroup,
   ExplainFitDto,
@@ -148,3 +150,21 @@ export const resolveRuntime = (user_override: string | null) =>
 // Model auto-discovery ----------------------------------------------------
 export const listCommonModelLocations = () => call<CommonLocation[]>("list_common_model_locations");
 export const scanCommonModelLocations = () => call<DiscoveryResult[]>("scan_common_model_locations");
+
+// Local Chat conversation history -----------------------------------------
+// A temporary chat simply never calls conversationsSave - there is no
+// separate "discard" call needed since nothing was ever written.
+export const listConversations = () => call<ConversationSummary[]>("conversations_list");
+export const showConversation = (conversation_id: string) =>
+  call<Conversation>("conversations_show", { conversation_id });
+export const createConversation = (
+  title: string,
+  library_id: string | null,
+  profile_id: string | null,
+  language: string | null,
+) => call<Conversation>("conversations_create", { title, library_id, profile_id, language });
+export const saveConversation = (conversation: Conversation) =>
+  call<void>("conversations_save", { conversation });
+export const deleteConversation = (conversation_id: string) =>
+  call<void>("conversations_delete", { conversation_id });
+export const clearAllConversations = () => call<number>("conversations_clear_all");
