@@ -5,6 +5,7 @@ import { deleteProfile, exportProfile, listLibrary, listProfiles, showProfile, v
 import type { ApplyResult, LibraryEntry, RuntimeProfile } from "../lib/types";
 import { formatTokensPerSecond } from "../lib/format";
 import { useAppStatus } from "../lib/AppStatusContext";
+import { TechnicalValue } from "../components/TechnicalValue";
 
 export function Profiles() {
   const { t } = useI18n();
@@ -103,6 +104,7 @@ export function Profiles() {
                 <li key={id}>
                   <button
                     type="button"
+                    dir="ltr"
                     className="nav-item"
                     aria-current={selected?.profile_id === id ? "page" : undefined}
                     onClick={() => select(id)}
@@ -117,9 +119,11 @@ export function Profiles() {
 
           {selected && (
             <aside className="inspector" aria-label={t("common_details")}>
-              <h3 className="inspector-title">{selected.profile_id}</h3>
+              <TechnicalValue as="h3" className="inspector-title">
+                {selected.profile_id}
+              </TechnicalValue>
               <p className="text-tertiary" style={{ marginBottom: 12 }}>
-                {t("profiles_tuned")}: {selected.tuning_date}
+                {t("profiles_tuned")}: <TechnicalValue as="span">{selected.tuning_date}</TechnicalValue>
               </p>
 
               {[
@@ -136,7 +140,7 @@ export function Profiles() {
               ].map(([label, value]) => (
                 <div key={String(label)} className="kv-row">
                   <span className="kv-row-label">{label}</span>
-                  <span className="kv-row-value mono num">{value}</span>
+                  <TechnicalValue className="kv-row-value mono num">{value}</TechnicalValue>
                 </div>
               ))}
 
@@ -174,7 +178,8 @@ export function Profiles() {
                   }}
                 >
                   <p>
-                    {t("run_status")}: <strong>{applyResult.status}</strong>
+                    {t("run_status")}:{" "}
+                    <TechnicalValue as="strong">{applyResult.status}</TechnicalValue>
                   </p>
                   <p className="text-secondary">{applyResult.detail}</p>
                   {applyResult.rollback_recommended && <p className="text-tertiary">{t("profiles_rollback")}</p>}

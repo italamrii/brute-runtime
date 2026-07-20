@@ -82,7 +82,13 @@ function ActivateStatus({ modelId, profileId }: { modelId: string | null; profil
   return null;
 }
 
-function renderConsole(modelId: string | null, profileId: string | null, onNavigate = vi.fn()) {
+function renderConsole(
+  modelId: string | null,
+  profileId: string | null,
+  onNavigate = vi.fn(),
+  lang: "en" | "ar" = "en",
+) {
+  window.localStorage.setItem("brute.language", lang);
   return {
     onNavigate,
     ...render(
@@ -147,5 +153,23 @@ describe("Advanced Console", () => {
     const btn = await screen.findByText("Open the interactive Run console");
     btn.click();
     expect(onNavigate).toHaveBeenCalledWith("run");
+  });
+
+  it("keeps the runtime path, model identifiers, hash, and profile ID forced ltr in the Arabic RTL page", async () => {
+    renderConsole("lib-1", "profile-1", vi.fn(), "ar");
+
+    const path = await screen.findByText("C:\\Program Files\\BRUTE Runtime\\runtime\\cpu");
+    expect(path).toHaveAttribute("dir", "ltr");
+
+    expect(screen.getByText("qwen2")).toHaveAttribute("dir", "ltr");
+    expect(screen.getByText("Q4_K_M")).toHaveAttribute("dir", "ltr");
+    expect(screen.getByText("local_unverified_source")).toHaveAttribute("dir", "ltr");
+    expect(screen.getByText("profile-1")).toHaveAttribute("dir", "ltr");
+    expect(screen.getByText("stable")).toHaveAttribute("dir", "ltr");
+
+    // The SHA-256 short hash is rendered inline as part of the model
+    // facts list - find it via its known short-hash prefix.
+    const hash = screen.getByText(/^a{12}…$/);
+    expect(hash).toHaveAttribute("dir", "ltr");
   });
 });

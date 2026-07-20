@@ -102,4 +102,19 @@ describe("Settings page — About panel", () => {
     await screen.findByText("BRUTE Runtime");
     expect(enContainer.querySelector('[dir="ltr"]')).toBeInTheDocument();
   });
+
+  it("keeps technical values (version, local-state path) forced ltr inside the Arabic RTL page", async () => {
+    renderSettings("ar");
+    await screen.findAllByText("BRUTE Runtime");
+
+    const version = screen.getByText("0.1.0");
+    expect(version).toHaveAttribute("dir", "ltr");
+
+    const localStatePath = screen.getByText("%LOCALAPPDATA%\\BruteRuntime\\");
+    expect(localStatePath).toHaveAttribute("dir", "ltr");
+
+    const libraryInput = screen.getByLabelText("موقع المكتبة الافتراضي") as HTMLInputElement;
+    expect(libraryInput).toHaveAttribute("dir", "ltr");
+    expect(libraryInput.value).toMatch(/BruteRuntime/);
+  });
 });

@@ -537,22 +537,29 @@ for the entire first turn. Fixed in `desktop/src/pages/Chat.tsx` by also
 switching to the message-list branch while `running` is true, even with
 zero messages yet, so the generating indicator appears immediately.
 
-## Advanced Console / Run / Models / Profiles: technical values (paths, hashes) can visually reorder under Arabic/RTL (known, pre-existing, not fixed this pass)
+## Advanced Console / Run / Models / Profiles / Settings: technical values (paths, hashes) visually reordered under Arabic/RTL (found and fixed)
 
 Found while verifying the new Advanced Console page: the resolved
 runtime binary path (which carries Windows' `\\?\` extended-length
 prefix - see above) rendered visually garbled in the Arabic UI, with the
 `\?\` fragment reordered to the end of the string. Root cause: these
 values are always-LTR technical strings (paths, SHA-256 hashes, enum
-values like `local_unverified_source`) rendered in a plain
-`.kv-row-value.mono` span with no explicit `dir="ltr"`, so the browser's
-bidi algorithm reorders weak-direction characters (backslashes) according
-to the surrounding Arabic paragraph direction. This is not new to
-Advanced Console - `Run.tsx`, `Models.tsx`, and `Profiles.tsx` render
-their own binary-path/hash/enum `kv-row-value` spans the exact same way,
-so the bug is pre-existing and app-wide, not introduced by Phase A.
-Deliberately not fixed in this pass - fixing one page only would make
-the inconsistency worse, and fixing it everywhere is a small but real
-cross-cutting change (add `dir="ltr"` to every technical-value span)
-that deserves its own focused pass rather than being folded silently
-into Phase A's Chat/Advanced-Console work.
+values like `local_unverified_source`, model/profile identifiers)
+rendered in a plain `.kv-row-value.mono` span with no explicit
+`dir="ltr"`, so the browser's bidi algorithm reorders weak-direction
+characters (backslashes) according to the surrounding Arabic paragraph
+direction. Not new to Advanced Console - `Run.tsx`, `Models.tsx`,
+`Profiles.tsx`, and `Settings.tsx` rendered their own binary-path/hash/
+enum/ID values the exact same way, so the bug was pre-existing and
+app-wide, not introduced by Phase A. Fixed with a shared
+`components/TechnicalValue.tsx` (`dir="ltr"` + CSS `unicode-bidi:
+isolate` - presentation-only, adds no characters to the DOM text, so
+copy/paste always yields the exact original string) applied across all
+five pages; native `<select><option>` elements (which can't hold a
+wrapper element) get `dir="ltr"` set directly instead. Regression tests
+cover Windows paths, SHA-256 hashes, and technical identifiers rendering
+correctly under Arabic RTL in `TechnicalValue.test.tsx` and each of the
+five pages' own test files. `Discover.tsx`, `Hardware.tsx`, `Health.tsx`,
+and `Optimize.tsx` render the same `kv-row-value` pattern and likely have
+the same latent issue, but were out of the requested scope for this
+pass.

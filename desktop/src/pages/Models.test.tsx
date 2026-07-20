@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { I18nProvider } from "../i18n/I18nContext";
 import { AppStatusProvider } from "../lib/AppStatusContext";
@@ -50,7 +50,8 @@ function entry(overrides: Partial<LibraryEntry> = {}): LibraryEntry {
   };
 }
 
-function renderModels() {
+function renderModels(lang: "en" | "ar" = "en") {
+  window.localStorage.setItem("brute.language", lang);
   return render(
     <I18nProvider>
       <AppStatusProvider>
@@ -86,5 +87,33 @@ describe("Models page", () => {
     ]);
     renderModels();
     await waitFor(() => expect(screen.getByText("Quarantined")).toBeInTheDocument());
+  });
+
+  it("keeps the Windows path, SHA-256 hash, and enum/identifier values forced ltr in the Arabic RTL inspector", async () => {
+    renderModels("ar");
+    fireEvent.click(await screen.findByText("test.gguf"));
+
+    const path = await screen.findByText("C:\\Models\\test.gguf");
+    expect(path).toHaveAttribute("dir", "ltr");
+
+    // "qwen2"/"Q4_K_M" appear both in the table row and the inspector
+    // panel - both instances now get the same fix.
+    for (const architecture of screen.getAllByText("qwen2")) {
+      expect(architecture).toHaveAttribute("dir", "ltr");
+    }
+    for (const quantization of screen.getAllByText("Q4_K_M")) {
+      expect(quantization).toHaveAttribute("dir", "ltr");
+    }
+
+    for (const trustBadge of screen.getAllByText("local_unverified_source")) {
+      expect(trustBadge).toHaveAttribute("dir", "ltr");
+    }
+
+    const hash = screen.getByTitle("a".repeat(64));
+    expect(hash).toHaveAttribute("dir", "ltr");
+  });
+
+  afterEach(() => {
+    window.localStorage.clear();
   });
 });

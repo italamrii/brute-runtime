@@ -15,6 +15,12 @@ if (typeof window !== "undefined" && !window.HTMLElement.prototype.scrollIntoVie
   window.HTMLElement.prototype.scrollIntoView = () => {};
 }
 
+// jsdom also doesn't implement scrollTo - Run's auto-scroll-output effect
+// calls it on every output update, same reasoning as scrollIntoView above.
+if (typeof window !== "undefined" && !window.HTMLElement.prototype.scrollTo) {
+  window.HTMLElement.prototype.scrollTo = () => {};
+}
+
 // The real Tauri IPC bridge only exists inside the webview; unit tests
 // run in jsdom, so every command call is mocked at the module boundary.
 // Individual tests override these with vi.mocked(...).mockResolvedValue

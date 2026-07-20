@@ -2,6 +2,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "../i18n/I18nContext";
 import { useAppStatus } from "../lib/AppStatusContext";
 import { brand } from "../config/brand";
+import { TechnicalValue } from "../components/TechnicalValue";
 
 const ONBOARDED_KEY = "brute.onboarded";
 
@@ -69,7 +70,7 @@ export function Settings() {
           {status.runtimeResolution?.binary_dir && (
             <div className="kv-row">
               <span className="kv-row-label">{t("settings_runtime_binary")}</span>
-              <span className="kv-row-value mono path-text">{status.runtimeResolution.binary_dir}</span>
+              <TechnicalValue className="kv-row-value mono path-text">{status.runtimeResolution.binary_dir}</TechnicalValue>
             </div>
           )}
           <div className="kv-row">
@@ -77,10 +78,16 @@ export function Settings() {
             <span className="kv-row-value">
               {status.runtimeResolution ? (
                 <>
-                  <span className={`badge ${status.runtimeResolution.cli_verified ? "badge-good" : "badge-unknown"}`}>llama-cli</span>
-                  <span className={`badge ${status.runtimeResolution.bench_verified ? "badge-good" : "badge-unknown"}`} style={{ marginInlineStart: 6 }}>
+                  <TechnicalValue as="span" className={`badge ${status.runtimeResolution.cli_verified ? "badge-good" : "badge-unknown"}`}>
+                    llama-cli
+                  </TechnicalValue>
+                  <TechnicalValue
+                    as="span"
+                    className={`badge ${status.runtimeResolution.bench_verified ? "badge-good" : "badge-unknown"}`}
+                    style={{ marginInlineStart: 6 }}
+                  >
                     llama-bench
-                  </span>
+                  </TechnicalValue>
                 </>
               ) : (
                 "—"
@@ -96,7 +103,7 @@ export function Settings() {
 
           <div className="field" style={{ marginTop: 8 }}>
             <label htmlFor="settings-lib">{t("settings_library_location")}</label>
-            <input id="settings-lib" type="text" readOnly value={status.libraryPath} className="path-text" />
+            <input id="settings-lib" type="text" dir="ltr" readOnly value={status.libraryPath} className="path-text" />
           </div>
         </div>
 
@@ -111,6 +118,7 @@ export function Settings() {
               <input
                 id="settings-runtime-override"
                 type="text"
+                dir="ltr"
                 readOnly
                 value={status.manualRuntimeOverride || t("status_none")}
                 className="path-text"
@@ -133,9 +141,9 @@ export function Settings() {
           <p className="text-secondary" style={{ marginBottom: 12 }}>
             {t("settings_privacy_body")}
           </p>
-          <p className="path-text text-tertiary" style={{ marginBottom: 12 }}>
+          <TechnicalValue as="p" className="path-text text-tertiary" style={{ marginBottom: 12 }}>
             %LOCALAPPDATA%\BruteRuntime\
-          </p>
+          </TechnicalValue>
           <button
             className="btn btn-danger"
             type="button"
@@ -164,7 +172,7 @@ export function Settings() {
 
           <div className="kv-row">
             <span className="kv-row-label">{t("settings_version")}</span>
-            <span className="kv-row-value mono">0.1.0</span>
+            <TechnicalValue className="kv-row-value mono">0.1.0</TechnicalValue>
           </div>
           <div className="kv-row">
             <span className="kv-row-label">{t("settings_network")}</span>

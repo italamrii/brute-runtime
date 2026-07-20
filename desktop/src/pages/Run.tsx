@@ -5,6 +5,7 @@ import { getAssociations, listLibrary, localRunCancel, localRunGenerate } from "
 import type { LibraryEntry, LocalRunOutcome, RunPhase, RuntimeProfile } from "../lib/types";
 import { formatBytes, formatTokensPerSecond } from "../lib/format";
 import { useAppStatus } from "../lib/AppStatusContext";
+import { TechnicalValue } from "../components/TechnicalValue";
 
 export function Run() {
   const { t } = useI18n();
@@ -167,7 +168,7 @@ export function Run() {
             <select id="run-model" value={modelId} onChange={(e) => setModelId(e.target.value)} disabled={running}>
               <option value="">{t("run_select_model")}</option>
               {models.map((m) => (
-                <option key={m.library_id} value={m.library_id}>
+                <option key={m.library_id} value={m.library_id} dir="ltr">
                   {m.alias ?? m.current_path.split(/[\\/]/).pop()}
                 </option>
               ))}
@@ -183,7 +184,7 @@ export function Run() {
             >
               {profiles.length === 0 && <option value="">{t("run_no_profile")}</option>}
               {profiles.map((p) => (
-                <option key={p.profile_id} value={p.profile_id}>
+                <option key={p.profile_id} value={p.profile_id} dir="ltr">
                   {p.profile_id} ({p.backend})
                 </option>
               ))}
@@ -194,55 +195,55 @@ export function Run() {
             <div className="telemetry-strip" style={{ gridTemplateColumns: "1fr 1fr" }}>
               <div className="telemetry-item">
                 <div className="stat-label">{t("status_backend")}</div>
-                <div className="stat-value" style={{ fontSize: 14 }}>
+                <TechnicalValue as="div" className="stat-value" style={{ fontSize: 14 }}>
                   {activeProfile.backend}
-                </div>
+                </TechnicalValue>
               </div>
               <div className="telemetry-item">
                 <div className="stat-label">{t("run_threads")}</div>
-                <div className="stat-value num" style={{ fontSize: 14 }}>
+                <TechnicalValue as="div" className="stat-value num" style={{ fontSize: 14 }}>
                   {activeProfile.threads}
-                </div>
+                </TechnicalValue>
               </div>
               <div className="telemetry-item">
                 <div className="stat-label">{t("run_gpu_layers")}</div>
-                <div className="stat-value num" style={{ fontSize: 14 }}>
+                <TechnicalValue as="div" className="stat-value num" style={{ fontSize: 14 }}>
                   {activeProfile.gpu_layers}
-                </div>
+                </TechnicalValue>
               </div>
               <div className="telemetry-item">
                 <div className="stat-label">{t("run_context")}</div>
-                <div className="stat-value num" style={{ fontSize: 14 }}>
+                <TechnicalValue as="div" className="stat-value num" style={{ fontSize: 14 }}>
                   {activeProfile.context_size}
-                </div>
+                </TechnicalValue>
               </div>
               <div className="telemetry-item">
                 <div className="stat-label">{t("run_batch")}</div>
-                <div className="stat-value num" style={{ fontSize: 14 }}>
+                <TechnicalValue as="div" className="stat-value num" style={{ fontSize: 14 }}>
                   {activeProfile.batch_size}
-                </div>
+                </TechnicalValue>
               </div>
               <div className="telemetry-item">
                 <div className="stat-label">{t("run_measured_gen")}</div>
-                <div className="stat-value num" style={{ fontSize: 14 }}>
+                <TechnicalValue as="div" className="stat-value num" style={{ fontSize: 14 }}>
                   {formatTokensPerSecond(activeProfile.mean_generation_tokens_per_second)}
-                </div>
+                </TechnicalValue>
               </div>
               <div className="telemetry-item">
                 <div className="stat-label">{t("run_memory_estimate")}</div>
-                <div className="stat-value num" style={{ fontSize: 14 }}>
+                <TechnicalValue as="div" className="stat-value num" style={{ fontSize: 14 }}>
                   {formatBytes(activeProfile.predicted_ram_bytes)}
                   {activeProfile.predicted_vram_bytes ? ` / ${formatBytes(activeProfile.predicted_vram_bytes)} VRAM` : ""}
-                </div>
+                </TechnicalValue>
               </div>
             </div>
           )}
 
           <div className="kv-row" style={{ fontSize: 11 }}>
             <span className="kv-row-label">{t("run_binary")}</span>
-            <span className="kv-row-value mono text-secondary" style={{ wordBreak: "break-all" }}>
+            <TechnicalValue className="kv-row-value mono text-secondary" style={{ wordBreak: "break-all" }}>
               {status.llamaBinPath || "—"}
-            </span>
+            </TechnicalValue>
           </div>
 
           <div className="field">

@@ -4,6 +4,7 @@ import { useAppStatus } from "../lib/AppStatusContext";
 import { getAssociations, listLibrary } from "../lib/api";
 import type { LibraryEntry, RuntimeProfile } from "../lib/types";
 import { formatBytes, formatDate, formatParamCount, formatTokensPerSecond, shortHash } from "../lib/format";
+import { TechnicalValue } from "../components/TechnicalValue";
 import type { Page } from "../App";
 
 /** A read-only diagnostics view of whichever model/profile Chat or Run
@@ -89,9 +90,9 @@ export function AdvancedConsole({ onNavigate }: { onNavigate: (page: Page) => vo
         {runtimeRows.map(([label, value]) => (
           <div key={label} className="kv-row">
             <span className="kv-row-label">{label}</span>
-            <span className="kv-row-value mono" style={{ wordBreak: "break-all" }}>
+            <TechnicalValue className="kv-row-value mono" style={{ wordBreak: "break-all" }}>
               {value}
-            </span>
+            </TechnicalValue>
           </div>
         ))}
       </div>
@@ -102,11 +103,13 @@ export function AdvancedConsole({ onNavigate }: { onNavigate: (page: Page) => vo
           <p className="text-tertiary">{t("console_no_model")}</p>
         ) : (
           <>
-            <h3 className="inspector-title">{model.alias ?? model.current_path.split(/[\\/]/).pop()}</h3>
+            <TechnicalValue as="h3" className="inspector-title">
+              {model.alias ?? model.current_path.split(/[\\/]/).pop()}
+            </TechnicalValue>
             {modelRows.map(([label, value]) => (
               <div key={label} className="kv-row">
                 <span className="kv-row-label">{label}</span>
-                <span className="kv-row-value mono">{value}</span>
+                <TechnicalValue className="kv-row-value mono">{value}</TechnicalValue>
               </div>
             ))}
           </>
@@ -119,11 +122,13 @@ export function AdvancedConsole({ onNavigate }: { onNavigate: (page: Page) => vo
           <p className="text-tertiary">{t("console_no_profile")}</p>
         ) : (
           <>
-            <h3 className="inspector-title">{profile.profile_id}</h3>
+            <TechnicalValue as="h3" className="inspector-title">
+              {profile.profile_id}
+            </TechnicalValue>
             {profileRows.map(([label, value]) => (
               <div key={label} className="kv-row">
                 <span className="kv-row-label">{label}</span>
-                <span className="kv-row-value mono">{value}</span>
+                <TechnicalValue className="kv-row-value mono">{value}</TechnicalValue>
               </div>
             ))}
           </>

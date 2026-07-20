@@ -18,6 +18,7 @@ import {
 import type { AssociationsDto, LibraryEntry, ScanResult, TrustStatus } from "../lib/types";
 import { formatBytes, formatDate, shortHash } from "../lib/format";
 import { useAppStatus } from "../lib/AppStatusContext";
+import { TechnicalValue } from "../components/TechnicalValue";
 
 function trustTone(entry: LibraryEntry): "good" | "warn" | "bad" | "unknown" {
   if (entry.quarantine) return "bad";
@@ -223,9 +224,9 @@ export function Models() {
       {scanPreview && (
         <div className="panel" style={{ marginBottom: 16 }}>
           <div className="panel-title">{t("models_scan_preview")}</div>
-          <p className="path-text text-secondary" style={{ marginBottom: 8 }}>
+          <TechnicalValue as="p" className="path-text text-secondary" style={{ marginBottom: 8 }}>
             {scanPreview.root}
-          </p>
+          </TechnicalValue>
           <p className="text-secondary">
             {scanPreview.result.discovered.filter((d) => d.kind === "gguf_candidate").length} GGUF ·{" "}
             {scanPreview.result.discovered.filter((d) => d.kind === "unsupported_format").length} unsupported ·{" "}
@@ -297,13 +298,17 @@ export function Models() {
                     tabIndex={0}
                     aria-selected={e.library_id === selectedId}
                   >
-                    <td>{e.alias ?? e.current_path.split(/[\\/]/).pop()}</td>
-                    <td>{e.architecture ?? "—"}</td>
-                    <td className="mono">{e.quantization ?? "—"}</td>
-                    <td className="num">{formatBytes(e.file_size_bytes)}</td>
+                    <TechnicalValue as="td">{e.alias ?? e.current_path.split(/[\\/]/).pop()}</TechnicalValue>
+                    <TechnicalValue as="td">{e.architecture ?? "—"}</TechnicalValue>
+                    <TechnicalValue as="td" className="mono">
+                      {e.quantization ?? "—"}
+                    </TechnicalValue>
+                    <TechnicalValue as="td" className="num">
+                      {formatBytes(e.file_size_bytes)}
+                    </TechnicalValue>
                     <td>
                       <span className={`badge badge-${trustTone(e)}`}>
-                        {e.quarantine ? t("models_quarantined_badge") : e.trust}
+                        {e.quarantine ? t("models_quarantined_badge") : <TechnicalValue as="span">{e.trust}</TechnicalValue>}
                       </span>
                     </td>
                   </tr>
@@ -316,43 +321,51 @@ export function Models() {
           {selected && (
             <aside className="inspector" aria-label={t("common_details")}>
               <div className="metric-card-label">{t("common_details")}</div>
-              <h3 className="inspector-title">{selected.alias ?? selected.current_path.split(/[\\/]/).pop()}</h3>
-              <div className="inspector-path">{selected.current_path}</div>
+              <TechnicalValue as="h3" className="inspector-title">
+                {selected.alias ?? selected.current_path.split(/[\\/]/).pop()}
+              </TechnicalValue>
+              <TechnicalValue as="div" className="inspector-path">
+                {selected.current_path}
+              </TechnicalValue>
 
               <div className="chip-row" style={{ marginBottom: 12 }}>
                 <span className={`badge badge-${trustTone(selected)}`}>
-                  {selected.quarantine ? t("models_quarantined_badge") : selected.trust}
+                  {selected.quarantine ? t("models_quarantined_badge") : <TechnicalValue as="span">{selected.trust}</TechnicalValue>}
                 </span>
-                <span className="badge badge-detected">{selected.catalog_match.confidence}</span>
+                <TechnicalValue as="span" className="badge badge-detected">
+                  {selected.catalog_match.confidence}
+                </TechnicalValue>
               </div>
 
               <div className="kv-row">
                 <span className="kv-row-label">{t("models_col_arch")}</span>
-                <span className="kv-row-value mono">{selected.architecture ?? "—"}</span>
+                <TechnicalValue className="kv-row-value mono">{selected.architecture ?? "—"}</TechnicalValue>
               </div>
               <div className="kv-row">
                 <span className="kv-row-label">{t("models_col_quant")}</span>
-                <span className="kv-row-value mono">{selected.quantization ?? "—"}</span>
+                <TechnicalValue className="kv-row-value mono">{selected.quantization ?? "—"}</TechnicalValue>
               </div>
               <div className="kv-row">
                 <span className="kv-row-label">{t("models_params")}</span>
-                <span className="kv-row-value num">
+                <TechnicalValue className="kv-row-value num">
                   {selected.parameter_count ? selected.parameter_count.toLocaleString() : "—"}
-                </span>
+                </TechnicalValue>
               </div>
               <div className="kv-row">
                 <span className="kv-row-label">{t("models_col_size")}</span>
-                <span className="kv-row-value num">{formatBytes(selected.file_size_bytes)}</span>
+                <TechnicalValue className="kv-row-value num">{formatBytes(selected.file_size_bytes)}</TechnicalValue>
               </div>
               <div className="kv-row">
                 <span className="kv-row-label">SHA-256</span>
-                <span className="kv-row-value mono" title={selected.sha256}>
+                <TechnicalValue className="kv-row-value mono" title={selected.sha256}>
                   {shortHash(selected.sha256, 20)}
-                </span>
+                </TechnicalValue>
               </div>
               <div className="kv-row">
                 <span className="kv-row-label">{t("models_integrity")}</span>
-                <span className="kv-row-value mono">{selected.last_verification?.overall_integrity ?? "—"}</span>
+                <TechnicalValue className="kv-row-value mono">
+                  {selected.last_verification?.overall_integrity ?? "—"}
+                </TechnicalValue>
               </div>
               <div className="kv-row">
                 <span className="kv-row-label">{t("models_last_verified")}</span>
@@ -363,15 +376,15 @@ export function Models() {
                 <>
                   <div className="kv-row">
                     <span className="kv-row-label">GGUF</span>
-                    <span className="kv-row-value mono">{selected.gguf_version}</span>
+                    <TechnicalValue className="kv-row-value mono">{selected.gguf_version}</TechnicalValue>
                   </div>
                   <div className="kv-row">
                     <span className="kv-row-label">{t("models_tensors")}</span>
-                    <span className="kv-row-value num">{selected.tensor_count}</span>
+                    <TechnicalValue className="kv-row-value num">{selected.tensor_count}</TechnicalValue>
                   </div>
                   <div className="kv-row">
                     <span className="kv-row-label">{t("models_file_status")}</span>
-                    <span className="kv-row-value mono">{selected.file_status}</span>
+                    <TechnicalValue className="kv-row-value mono">{selected.file_status}</TechnicalValue>
                   </div>
                   <div className="kv-row">
                     <span className="kv-row-label">{t("models_imported_at")}</span>
