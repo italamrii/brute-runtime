@@ -1,5 +1,9 @@
 /target
 
+# Packaged end-user release artifacts (built by
+# scripts/package-windows-release.ps1) - regenerable output, not source.
+/release
+
 # Locally fetched, verified llama.cpp binaries - not redistributed via this repo
 .tools/
 
