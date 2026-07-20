@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+# This workflow only verifies the codebase (tests/lint/type-check/build).
+# It does not build, package, or publish a release - see RELEASE.md for
+# the manual release process, run by a maintainer.
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: Frontend (lint, type-check, tests, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsc --noEmit
+      - run: npm test -- --run
+      - run: npm run build
+
+  rust-core:
+    name: Rust core engine (fmt, clippy, tests)
+    # The core engine's Rust test suite includes Windows-only process
+    # tests (see docs/known-limitations.md) and the project is
+    # Windows-first/Windows-verified - CI runs on windows-latest to match
+    # what's actually supported and verified, not a partial cross-OS
+    # matrix that would silently skip or fail known-Windows-only tests.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+
+  rust-desktop:
+    name: Desktop backend (fmt, clippy, tests)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Build frontend (desktop Rust build embeds dist/)
+        working-directory: desktop
+        run: |
+          npm ci
+          npm run build
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      - working-directory: desktop/src-tauri
+        run: cargo fmt --check
+      - working-directory: desktop/src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+      - working-directory: desktop/src-tauri
+        run: cargo test
