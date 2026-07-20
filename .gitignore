@@ -9,6 +9,63 @@
 
 # User-imported model files - never redistributed
 *.gguf
+*.ggml
+*.safetensors
 
-# Generated reports
+# Generated reports (contain real hardware/device details from the
+# machine that ran `brute report`) - never committed.
 /brute-report.json
+brute-report*.json
+*.report.json
+
+# Installer / build-artifact binaries - should only ever exist under a
+# gitignored target/release directory, but excluded here too as a
+# defense-in-depth net against one landing at the repo root or elsewhere.
+*.msi
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+*-setup.exe
+*-Setup.exe
+
+# Partial/in-progress downloads (see commands/download.rs's `.partial`
+# suffix convention) and generic temp-download artifacts.
+*.part
+*.partial
+*.crdownload
+*.tmp
+
+# Logs
+*.log
+/logs/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Certificates, signing keys, and secrets - BRUTE ships unsigned; a real
+# certificate/private key must never be committed.
+*.pfx
+*.p12
+*.cer
+*.crt
+*.pem
+*.key
+.env
+.env.*
+secrets.json
+credentials.json
+
+# Node dependency tree (only ever exists under desktop/, which has its
+# own .gitignore, but excluded here too in case one appears elsewhere).
+node_modules/
+
+# IDE settings - only intentionally-shared files (e.g.
+# desktop/.vscode/extensions.json) are allow-listed in their own
+# directory-scoped .gitignore; nothing at the repo root is shared by
+# default.
+/.vscode/*
+!/.vscode/extensions.json
+/.idea/
