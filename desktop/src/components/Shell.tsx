@@ -4,6 +4,7 @@ import { useAppStatus } from "../lib/AppStatusContext";
 import { brand } from "../config/brand";
 import type { Page } from "../App";
 import {
+  IconChat,
   IconDiscover,
   IconHardware,
   IconHealth,
@@ -16,6 +17,7 @@ import {
 } from "./Icons";
 
 const NAV_ITEMS: { page: Page; key: string; Icon: typeof IconOverview }[] = [
+  { page: "chat", key: "nav_chat", Icon: IconChat },
   { page: "overview", key: "nav_overview", Icon: IconOverview },
   { page: "hardware", key: "nav_hardware", Icon: IconHardware },
   { page: "models", key: "nav_models", Icon: IconModels },

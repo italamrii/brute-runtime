@@ -125,3 +125,20 @@ export function IconDiscover(props: IconProps) {
     </Svg>
   );
 }
+
+export function IconChat(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M2.5 4.5a1.5 1.5 0 0 1 1.5-1.5h8a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 1-1.5 1.5H6.5L4 13.5V11H4a1.5 1.5 0 0 1-1.5-1.5z" />
+    </Svg>
+  );
+}
+
+export function IconConsole(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="2" y="3" width="12" height="9" rx="1" />
+      <path d="M4.5 6.2 7 8l-2.5 1.8M8.2 10h3.3" />
+    </Svg>
+  );
+}

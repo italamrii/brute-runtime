@@ -4,6 +4,7 @@ import { AppStatusProvider } from "./lib/AppStatusContext";
 import { Shell } from "./components/Shell";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Onboarding } from "./pages/Onboarding";
+import { Chat } from "./pages/Chat";
 import { Overview } from "./pages/Overview";
 import { Hardware } from "./pages/Hardware";
 import { Models } from "./pages/Models";
@@ -14,13 +15,23 @@ import { Profiles } from "./pages/Profiles";
 import { Health } from "./pages/Health";
 import { Settings } from "./pages/Settings";
 
-export type Page = "overview" | "hardware" | "models" | "discover" | "optimize" | "run" | "profiles" | "health" | "settings";
+export type Page =
+  | "chat"
+  | "overview"
+  | "hardware"
+  | "models"
+  | "discover"
+  | "optimize"
+  | "run"
+  | "profiles"
+  | "health"
+  | "settings";
 
 const ONBOARDED_KEY = "brute.onboarded";
 
 function AppShellRouter() {
   const [onboarded, setOnboarded] = useState<boolean>(() => window.localStorage.getItem(ONBOARDED_KEY) === "1");
-  const [page, setPage] = useState<Page>("overview");
+  const [page, setPage] = useState<Page>("chat");
 
   if (!onboarded) {
     return (
@@ -36,7 +47,8 @@ function AppShellRouter() {
 
   return (
     <Shell active={page} onNavigate={setPage}>
-      <ErrorBoundary key={page} onRecover={() => setPage("overview")}>
+      <ErrorBoundary key={page} onRecover={() => setPage("chat")}>
+        {page === "chat" && <Chat />}
         {page === "overview" && <Overview onNavigate={setPage} />}
         {page === "hardware" && <Hardware />}
         {page === "models" && <Models />}
