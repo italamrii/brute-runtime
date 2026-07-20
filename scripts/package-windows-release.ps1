@@ -74,6 +74,7 @@ Write-Host "SHA-256: $($hash.Hash)"
 $readmeEn = @"
 BRUTE Runtime $version - Windows x64 (beta)
 POWER. CONTROL. PERFORMANCE.
+By Engineer Abdullah Alamri
 
 HOW TO INSTALL
 1. Double-click BRUTE-Runtime-Setup.exe.
@@ -105,6 +106,7 @@ with this installer (the CPU-only llama.cpp runtime).
 $readmeAr = @"
 BRUTE Runtime $version - إصدار تجريبي لويندوز 64-bit
 القوة. التحكم. الأداء.
+بواسطة المهندس عبدالله العمري
 
 طريقة التثبيت
 1. اضغط مرتين على BRUTE-Runtime-Setup.exe.

@@ -76,6 +76,22 @@ describe("Settings page — About panel", () => {
     expect(screen.getByText("نسخة تجريبية غير موقعة رقميًا حاليًا.")).toBeInTheDocument();
   });
 
+  it("shows the author credit, subtly, in English", async () => {
+    renderSettings("en");
+    await screen.findByText("BRUTE Runtime");
+    const credit = screen.getByText("By Engineer Abdullah Alamri");
+    expect(credit).toBeInTheDocument();
+    expect(credit).toHaveClass("about-credit");
+  });
+
+  it("shows the author credit, subtly, in Arabic", async () => {
+    renderSettings("ar");
+    await screen.findAllByText("BRUTE Runtime");
+    const credit = screen.getByText("بواسطة المهندس عبدالله العمري");
+    expect(credit).toBeInTheDocument();
+    expect(credit).toHaveClass("about-credit");
+  });
+
   it("renders the page under an RTL container in Arabic and LTR in English", async () => {
     const { container } = renderSettings("ar");
     await screen.findAllByText("BRUTE Runtime");

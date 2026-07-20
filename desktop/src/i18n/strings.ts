@@ -382,6 +382,7 @@ export const strings: Record<Lang, Record<string, string>> = {
     settings_about_desc_2: "No accounts, no tracking, and no data uploads",
     settings_signing: "Signing",
     dev_build_notice: "This beta is not digitally signed yet.",
+    settings_author_credit: "By Engineer Abdullah Alamri",
   },
   ar: {
     app_title: "BRUTE Runtime",
@@ -760,5 +761,6 @@ export const strings: Record<Lang, Record<string, string>> = {
     settings_about_desc_2: "لا حسابات، لا تتبع، ولا رفع للبيانات",
     settings_signing: "التوقيع",
     dev_build_notice: "نسخة تجريبية غير موقعة رقميًا حاليًا.",
+    settings_author_credit: "بواسطة المهندس عبدالله العمري",
   },
 };

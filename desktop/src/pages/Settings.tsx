@@ -178,6 +178,8 @@ export function Settings() {
             <span className="kv-row-label">{t("settings_signing")}</span>
             <span className="kv-row-value">{t("dev_build_notice")}</span>
           </div>
+
+          <div className="about-credit">{t("settings_author_credit")}</div>
         </div>
       </div>
     </div>
