@@ -5,6 +5,7 @@ import { brand } from "../config/brand";
 import type { Page } from "../App";
 import {
   IconChat,
+  IconConsole,
   IconDiscover,
   IconHardware,
   IconHealth,
@@ -18,6 +19,7 @@ import {
 
 const NAV_ITEMS: { page: Page; key: string; Icon: typeof IconOverview }[] = [
   { page: "chat", key: "nav_chat", Icon: IconChat },
+  { page: "console", key: "nav_advanced_console", Icon: IconConsole },
   { page: "overview", key: "nav_overview", Icon: IconOverview },
   { page: "hardware", key: "nav_hardware", Icon: IconHardware },
   { page: "models", key: "nav_models", Icon: IconModels },

@@ -5,6 +5,7 @@ import { Shell } from "./components/Shell";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Onboarding } from "./pages/Onboarding";
 import { Chat } from "./pages/Chat";
+import { AdvancedConsole } from "./pages/AdvancedConsole";
 import { Overview } from "./pages/Overview";
 import { Hardware } from "./pages/Hardware";
 import { Models } from "./pages/Models";
@@ -17,6 +18,7 @@ import { Settings } from "./pages/Settings";
 
 export type Page =
   | "chat"
+  | "console"
   | "overview"
   | "hardware"
   | "models"
@@ -49,6 +51,7 @@ function AppShellRouter() {
     <Shell active={page} onNavigate={setPage}>
       <ErrorBoundary key={page} onRecover={() => setPage("chat")}>
         {page === "chat" && <Chat />}
+        {page === "console" && <AdvancedConsole onNavigate={setPage} />}
         {page === "overview" && <Overview onNavigate={setPage} />}
         {page === "hardware" && <Hardware />}
         {page === "models" && <Models />}
