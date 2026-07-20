@@ -520,3 +520,39 @@ guarantee it holds for every model or llama.cpp version - if the
 `Assistant:` marker isn't found, the raw text is returned unchanged
 rather than mangled, so an unrecognized format degrades to "shows extra
 chrome," never "silently drops real content."
+
+## Chat experience (Phase A): first message in a brand-new conversation showed no live feedback (found and fixed)
+
+Found via real installed-build testing, not a guess: sending the first
+message in a freshly created conversation left the empty-state
+suggestion chips on screen for the entire generation, with only the
+Send-to-Stop button swap as any sign something was happening - looking
+indistinguishable from a frozen app to anyone watching. Root cause: the
+live streaming/"Preparing" indicator lives inside the message-list
+render branch, gated on `conversation.messages.length > 0`, and
+`runGeneration` only appends the user+assistant messages once the full
+exchange completes (not incrementally) - so a brand-new conversation's
+`messages` array stays empty, and therefore on the empty-state branch,
+for the entire first turn. Fixed in `desktop/src/pages/Chat.tsx` by also
+switching to the message-list branch while `running` is true, even with
+zero messages yet, so the generating indicator appears immediately.
+
+## Advanced Console / Run / Models / Profiles: technical values (paths, hashes) can visually reorder under Arabic/RTL (known, pre-existing, not fixed this pass)
+
+Found while verifying the new Advanced Console page: the resolved
+runtime binary path (which carries Windows' `\\?\` extended-length
+prefix - see above) rendered visually garbled in the Arabic UI, with the
+`\?\` fragment reordered to the end of the string. Root cause: these
+values are always-LTR technical strings (paths, SHA-256 hashes, enum
+values like `local_unverified_source`) rendered in a plain
+`.kv-row-value.mono` span with no explicit `dir="ltr"`, so the browser's
+bidi algorithm reorders weak-direction characters (backslashes) according
+to the surrounding Arabic paragraph direction. This is not new to
+Advanced Console - `Run.tsx`, `Models.tsx`, and `Profiles.tsx` render
+their own binary-path/hash/enum `kv-row-value` spans the exact same way,
+so the bug is pre-existing and app-wide, not introduced by Phase A.
+Deliberately not fixed in this pass - fixing one page only would make
+the inconsistency worse, and fixing it everywhere is a small but real
+cross-cutting change (add `dir="ltr"` to every technical-value span)
+that deserves its own focused pass rather than being folded silently
+into Phase A's Chat/Advanced-Console work.
