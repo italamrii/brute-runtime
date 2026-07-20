@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useI18n } from "../i18n/I18nContext";
 import { useAppStatus } from "../lib/AppStatusContext";
+import { brand } from "../config/brand";
 import type { Page } from "../App";
 import {
   IconDiscover,
@@ -43,11 +44,9 @@ export function Shell({
       <nav className="sidebar" aria-label={t("app_title")}>
         <div className="sidebar-brand">
           <div className="sidebar-brand-mark">
-            <div className="sidebar-brand-glyph" aria-hidden="true">
-              B
-            </div>
+            <img className="sidebar-brand-glyph" src={brand.iconUrl} alt="" aria-hidden="true" />
             <div>
-              <div className="sidebar-brand-title">BRUTE</div>
+              <div className="sidebar-brand-title">{brand.shortName}</div>
               <div className="sidebar-brand-sub">Runtime</div>
             </div>
           </div>

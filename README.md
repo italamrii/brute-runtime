@@ -1,4 +1,8 @@
+![BRUTE Runtime](branding/brute-logo.png)
+
 # BRUTE Runtime
+
+**POWER. CONTROL. PERFORMANCE.**
 
 A Windows-first, fully local AI workspace — hardware-aware GGUF model
 inspection, fit analysis, runtime auto-tuning, a trusted local model

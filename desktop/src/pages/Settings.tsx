@@ -1,6 +1,7 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "../i18n/I18nContext";
 import { useAppStatus } from "../lib/AppStatusContext";
+import { brand } from "../config/brand";
 
 const ONBOARDED_KEY = "brute.onboarded";
 
@@ -151,6 +152,11 @@ export function Settings() {
 
         <div className="panel">
           <div className="panel-title">{t("settings_about")}</div>
+          <img
+            src={brand.logoUrl}
+            alt={`${brand.productName} — ${brand.tagline}`}
+            style={{ maxWidth: 220, width: "100%", height: "auto", marginBottom: 12 }}
+          />
           <div className="kv-row">
             <span className="kv-row-label">{t("settings_version")}</span>
             <span className="kv-row-value mono">0.1.0</span>

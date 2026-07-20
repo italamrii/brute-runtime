@@ -360,3 +360,67 @@ is a deliberate, documented scope cut.
   arbitrary user-added folders yet; "Add folder" (a manual, one-off
   directory scan) is available as a complement, not a persisted list of
   additional auto-scan locations.
+
+## Navigation-safety hardening and branding pass
+
+- **The Discover Models catalog has no in-app "Download" action yet, by
+  design.** `ModelBuild` (`src/catalog/schema.rs`) only carries
+  `official_source_url` - the model's official page/repository, meant
+  for a human to review license and pick the right file, not a
+  verified direct link to one specific `.gguf` artifact. The already-
+  implemented `download_model`/`cancel_download` Tauri commands
+  (`desktop/src-tauri/src/commands/download.rs`) correctly stream-
+  download-and-verify *any* http(s) URL a caller gives them, but wiring
+  a "Download" button to `official_source_url` today would silently
+  download the wrong content (an HTML page, not model weights) and
+  mislabel it as a model - exactly the kind of false-success this
+  project refuses to ship. Closing this gap requires sourcing and
+  pinning a real, per-artifact direct file URL (and ideally a
+  publisher-supplied hash) into the catalog schema, which is a data/
+  schema change out of scope for this pass. The Discover Models modal
+  therefore currently offers exactly one external action - "Open
+  official source," which opens the real page in the system browser -
+  and both the Tauri command layer and the Rust unit tests for the
+  download flow remain in place and correct for when real per-artifact
+  URLs are added.
+- **A real Cargo build-script staleness bug was caught during installed-
+  build verification of this pass.** `tauri_build::build()` (called from
+  `desktop/src-tauri/build.rs`) only emits `cargo:rerun-if-changed` for
+  `tauri.conf.json` itself, not for the *content* of the icon files that
+  config references. After regenerating `icons/icon.ico` in place (same
+  path, new bytes) and running a full `npm run tauri build`, the shipped
+  `brute-desktop.exe` still carried the *previous* build's Windows icon
+  resource - verified directly with `SHGetFileInfo` (the real API
+  Explorer/taskbar/Start Menu use to read an exe's icon), not just a
+  visual glance. Cargo saw no reason to re-run the build script (nothing
+  it was told to watch had changed) even though `cargo build` reported a
+  full recompile of the crate. Fixed two ways: (1) `build.rs` now
+  explicitly emits `cargo:rerun-if-changed` for every file under
+  `icons/`, so a future icon replacement reliably triggers a rebuild; (2)
+  verified fixed by touching `build.rs` to force one rebuild and
+  re-checking with `SHGetFileInfo` before shipping this pass's
+  installers. Anyone hitting a similarly "the exe didn't pick up my new
+  icon" symptom on an older checkout should `cargo clean -p
+  brute-desktop --release` (or touch `build.rs`) once, then rebuild.
+- **The critical "recommended model click navigates the whole WebView to
+  a localhost error page" failure could not be reproduced from static
+  analysis of the current tree** - every code path that opens an
+  external URL (`Discover.tsx`'s one `openUrl` call site) already used
+  `@tauri-apps/plugin-opener`, which launches the OS's real default
+  browser as a *separate process* and was never capable of replacing
+  the app's own WebView content, and no `localhost`/`window.location`/
+  anchor-tag navigation exists anywhere else in the frontend source,
+  the production `dist/` bundle, or the catalog data. Rather than leave
+  this as an unresolved report, the fix applied is a structural,
+  cannot-be-bypassed backstop regardless of root cause: a Rust-level
+  `on_navigation` WebView guard (`desktop/src-tauri/src/lib.rs`)
+  rejects any navigation attempt whose scheme/host isn't the app's own
+  page origin, a frontend URL-safety check
+  (`desktop/src/lib/urlSafety.ts`) rejects localhost/loopback/private/
+  malformed URLs before `openUrl` is ever called, and model details now
+  open in a real internal dialog (`desktop/src/components/Modal.tsx`)
+  with Back/Close/Escape - so even an unidentified future regression in
+  this class cannot trap the user. If the original report was from an
+  older build of this codebase (predating the current `Discover.tsx`/
+  `openUrl` implementation), this note should be read as "fixed at the
+  architecture level," not "root cause confirmed."

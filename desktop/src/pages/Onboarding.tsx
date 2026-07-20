@@ -5,6 +5,7 @@ import { importModel, scanCommonModelLocations, scanDirectory } from "../lib/api
 import type { DiscoveryResult } from "../lib/types";
 import { useState } from "react";
 import type { Page } from "../App";
+import { brand } from "../config/brand";
 
 /** First-run screen: one short explanation, no internet/sign-in, fully
  * skippable. "Scan device" scans only a fixed, safe set of common model
@@ -92,12 +93,10 @@ export function Onboarding({ onDone }: { onDone: (targetPage?: Page) => void }) 
       <div className="onboarding-card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, gap: 12 }}>
           <div className="sidebar-brand-mark">
-            <div className="sidebar-brand-glyph" aria-hidden="true">
-              B
-            </div>
+            <img className="sidebar-brand-glyph" src={brand.iconUrl} alt="" aria-hidden="true" />
             <div>
-              <div className="sidebar-brand-title">BRUTE</div>
-              <div className="sidebar-brand-sub">Runtime</div>
+              <div className="sidebar-brand-title">{brand.shortName}</div>
+              <div className="sidebar-brand-sub">{brand.tagline}</div>
             </div>
           </div>
           <select

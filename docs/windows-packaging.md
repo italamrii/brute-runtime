@@ -40,7 +40,11 @@ bundler. Bundle targets are configured in
   configuring a runtime path themselves - see
   `docs/architecture.md`'s "trusted runtime resolution" section.
 - App icons (`icons/*.png`, `icons/icon.ico`, `icons/icon.icns`) -
-  locally provided, no external icon service.
+  generated from the official BRUTE app-icon artwork
+  (`branding/brute-app-icon.png`) via `npx tauri icon` /
+  `desktop/scripts/generate-icons.ps1`, no external icon service. This
+  is what appears as the `.exe`/taskbar/Start Menu/MSI/NSIS icon. See
+  `branding/README.md`.
 
 ## Version metadata
 

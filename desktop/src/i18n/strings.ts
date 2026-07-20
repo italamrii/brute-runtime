@@ -42,6 +42,15 @@ export const strings: Record<Lang, Record<string, string>> = {
     discover_commercial_restricted: "Restricted",
     discover_license_reminder: "Review the official license before deployment.",
     discover_open_source: "Open official source",
+    discover_details_title: "Model details",
+    discover_confirm_open_title: "Open in your browser?",
+    discover_confirm_open_body:
+      "BRUTE will open this link in your device's default web browser — a separate app window, not this one. This is the only time BRUTE leaves the app to load an external page.",
+    discover_confirm_open_destination: "Destination",
+    discover_confirm_open_confirm: "Open in browser",
+    discover_url_rejected_title: "This link was not opened",
+    discover_url_rejected_body:
+      "The official source link could not be verified as a safe external address, so BRUTE did not open it. This protects you from being redirected to an unsafe or internal address.",
     task_general_chat: "General chat",
     task_coding: "Coding",
     task_arabic_chat: "Arabic",
@@ -408,6 +417,15 @@ export const strings: Record<Lang, Record<string, string>> = {
     discover_commercial_restricted: "مقيّد",
     discover_license_reminder: "راجع الترخيص الرسمي قبل الاستخدام الفعلي.",
     discover_open_source: "فتح المصدر الرسمي",
+    discover_details_title: "تفاصيل النموذج",
+    discover_confirm_open_title: "فتح في المتصفح؟",
+    discover_confirm_open_body:
+      "سيفتح BRUTE هذا الرابط في متصفح جهازك الافتراضي — نافذة تطبيق منفصلة، وليست هذه النافذة. هذه هي المرة الوحيدة التي يغادر فيها BRUTE التطبيق لتحميل صفحة خارجية.",
+    discover_confirm_open_destination: "الوجهة",
+    discover_confirm_open_confirm: "فتح في المتصفح",
+    discover_url_rejected_title: "لم يتم فتح هذا الرابط",
+    discover_url_rejected_body:
+      "تعذّر التحقق من أن رابط المصدر الرسمي عنوان خارجي آمن، لذلك لم يفتحه BRUTE. هذا يحميك من التحويل إلى عنوان غير آمن أو داخلي.",
     task_general_chat: "محادثة عامة",
     task_coding: "برمجة",
     task_arabic_chat: "عربي",

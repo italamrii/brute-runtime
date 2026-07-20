@@ -2,9 +2,38 @@ mod commands;
 mod paths;
 mod state;
 
+/// The main BRUTE window must never navigate away from its own app
+/// pages - not to `localhost` (a stray dev-server reference), not to a
+/// real external site, not to `file://`/`javascript:`. This is a
+/// cannot-be-bypassed guard at the WebView level: it rejects every
+/// navigation attempt regardless of what triggered it (a frontend bug,
+/// a future regression, a malformed link) - opening an external URL is
+/// only ever done via `tauri-plugin-opener`'s `open_url`, which launches
+/// the user's real default browser as a separate process and never
+/// navigates this window at all. See docs/tauri-security-boundary.md.
+fn navigation_guard<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri::plugin::Builder::new("brute-navigation-guard")
+        .on_navigation(|_webview, url| {
+            let scheme = url.scheme();
+            let host = url.host_str().unwrap_or("");
+            if cfg!(dev) {
+                // Dev mode: the app's own pages are served by the Vite
+                // dev server on the configured devUrl - nothing else.
+                return scheme == "http" && host == "localhost";
+            }
+            // Release: the app's own pages are served via the `tauri://`
+            // custom protocol (macOS/Linux) or the `tauri.localhost`
+            // virtual host WebView2 uses on Windows - never a real
+            // network origin. Anything else is rejected before it loads.
+            scheme == "tauri" || host == "tauri.localhost"
+        })
+        .build()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(navigation_guard())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::default())

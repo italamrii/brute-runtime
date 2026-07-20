@@ -153,18 +153,10 @@ p {
 }
 
 .sidebar-brand-glyph {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border-radius: var(--radius-sm);
-  background: linear-gradient(155deg, var(--red-700), var(--red-900));
-  border: 1px solid var(--red-600);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-primary);
-  font-weight: 800;
-  font-size: 12px;
-  letter-spacing: -0.02em;
+  object-fit: cover;
   flex: none;
 }
 
@@ -1357,4 +1349,74 @@ table.data-table {
     padding: 7px var(--space-3);
     font-size: 11.5px;
   }
+}
+
+/* =====================================================================
+   Modal — an internal dialog, never a navigation. See components/Modal.tsx.
+   ===================================================================== */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 4, 5, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+  z-index: 100;
+}
+
+.modal-dialog {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-panel);
+  width: min(480px, 100%);
+  max-height: min(640px, 100%);
+  overflow-y: auto;
+  outline: none;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-5) 0;
+}
+
+.modal-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.modal-close-btn {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  width: 26px;
+  height: 26px;
+  line-height: 1;
+  font-size: 16px;
+  cursor: pointer;
+  flex: none;
+}
+
+.modal-close-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-tertiary);
+}
+
+.modal-body {
+  padding: var(--space-5);
+}
+
+.modal-actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+  flex-wrap: wrap;
 }
