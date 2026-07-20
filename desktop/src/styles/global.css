@@ -1420,3 +1420,46 @@ table.data-table {
   margin-top: var(--space-5);
   flex-wrap: wrap;
 }
+
+/* =====================================================================
+   Settings — About panel
+   ===================================================================== */
+
+.about-logo {
+  display: block;
+  max-width: 260px;
+  width: 100%;
+  height: auto;
+  margin-bottom: var(--space-2);
+}
+
+.about-product-name {
+  font-size: 15px;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+.about-slogan {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.about-desc {
+  font-size: var(--type-body);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: var(--space-4) 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-hairline);
+}
+
+.about-desc p {
+  margin: 0;
+}
+
+.about-desc p + p {
+  margin-top: 2px;
+}

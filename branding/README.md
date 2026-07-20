@@ -48,7 +48,7 @@ Running the script regenerates, from the single square source image:
 - `desktop/src-tauri/icons/icon.icns` — macOS icon
 - `desktop/src-tauri/icons/icon.png`, `32x32.png`, `64x64.png`, `128x128.png`, `128x128@2x.png` — Linux desktop icon + general PNG sizes
 - `desktop/src-tauri/icons/Square*.png`, `StoreLogo.png` — Windows Store/Square logo variants (only relevant if a Store package target is ever added)
-- `desktop/src/assets/brand/brute-app-icon.png` and `brute-logo.png` — refreshed copies the in-app UI (`desktop/src/config/brand.ts`) imports directly, **downscaled** (256px / 900px max dimension) since they're only ever displayed small in-app (~28px sidebar mark, ~220px About-panel logo) — the full-resolution originals stay in `branding/` only
+- `desktop/src/assets/brand/brute-app-icon.png` and `brute-logo.png` — refreshed copies the in-app UI (`desktop/src/config/brand.ts`) imports directly, **downscaled** (256px / 900px max dimension) since they're only ever displayed small in-app (~28px sidebar mark, ~220px About-panel logo) — the full-resolution originals stay in `branding/` only. The in-app `brute-logo.png` copy is also **auto-cropped to its content**: the source artwork has deliberate letterboxing (empty dark margin) for use as a wide hero banner, which reads as wasted space at in-app sizes, so the script trims to the actual logo's bounding box (plus a small padding margin) before resizing - same artwork, not redrawn or distorted, just tighter framing. The app-icon is never cropped (it's a full-bleed square glyph, not a banner).
 
 None of these generated files should be hand-edited — always change the
 two source files above and re-run the script.

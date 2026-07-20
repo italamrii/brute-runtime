@@ -378,11 +378,14 @@ export const strings: Record<Lang, Record<string, string>> = {
       "Only needed if you want to use a different llama.cpp build than the one bundled with BRUTE. Most users never need this.",
     common_clear: "Clear",
 
-    dev_build_notice: "Development build — publisher signature not yet configured.",
+    settings_about_desc_1: "Free beta running locally on your device",
+    settings_about_desc_2: "No accounts, no tracking, and no data uploads",
+    settings_signing: "Signing",
+    dev_build_notice: "This beta is not digitally signed yet.",
   },
   ar: {
     app_title: "BRUTE Runtime",
-    slogan: "بياناتك ما تطلع من جهازك",
+    slogan: "بياناتك ما تطلع من جهازك.",
     nav_overview: "نظرة عامة",
     nav_hardware: "الجهاز",
     nav_models: "النماذج",
@@ -753,6 +756,9 @@ export const strings: Record<Lang, Record<string, string>> = {
       "مطلوب فقط إذا رغبت باستخدام نسخة مختلفة من llama.cpp غير المرفقة مع BRUTE. لا يحتاج معظم المستخدمين لهذا.",
     common_clear: "مسح",
 
-    dev_build_notice: "نسخة تطوير — لم يتم إعداد توقيع الناشر بعد.",
+    settings_about_desc_1: "نسخة تجريبية مجانية تعمل محليًا على جهازك",
+    settings_about_desc_2: "لا حسابات، لا تتبع، ولا رفع للبيانات",
+    settings_signing: "التوقيع",
+    dev_build_notice: "نسخة تجريبية غير موقعة رقميًا حاليًا.",
   },
 };

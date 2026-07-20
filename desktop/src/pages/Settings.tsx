@@ -152,11 +152,16 @@ export function Settings() {
 
         <div className="panel">
           <div className="panel-title">{t("settings_about")}</div>
-          <img
-            src={brand.logoUrl}
-            alt={`${brand.productName} — ${brand.tagline}`}
-            style={{ maxWidth: 220, width: "100%", height: "auto", marginBottom: 12 }}
-          />
+
+          <img className="about-logo" src={brand.logoUrl} alt={`${brand.productName} — ${brand.tagline}`} />
+          <div className="about-product-name">{brand.productName}</div>
+          <div className="about-slogan">{t("slogan")}</div>
+
+          <div className="about-desc">
+            <p>{t("settings_about_desc_1")}</p>
+            <p>{t("settings_about_desc_2")}</p>
+          </div>
+
           <div className="kv-row">
             <span className="kv-row-label">{t("settings_version")}</span>
             <span className="kv-row-value mono">0.1.0</span>
@@ -165,9 +170,14 @@ export function Settings() {
             <span className="kv-row-label">{t("settings_network")}</span>
             <span className="kv-row-value">{t("status_no_network")}</span>
           </div>
-          <p className="text-tertiary" style={{ marginTop: 12 }}>
-            {t("dev_build_notice")}
-          </p>
+          <div className="kv-row">
+            <span className="kv-row-label">{t("overview_privacy")}</span>
+            <span className="kv-row-value">{t("overview_privacy_value")}</span>
+          </div>
+          <div className="kv-row">
+            <span className="kv-row-label">{t("settings_signing")}</span>
+            <span className="kv-row-value">{t("dev_build_notice")}</span>
+          </div>
         </div>
       </div>
     </div>
