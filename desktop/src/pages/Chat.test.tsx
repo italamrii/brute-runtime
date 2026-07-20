@@ -223,6 +223,30 @@ describe("Chat page", () => {
     expect(await screen.findByText("How can I help?")).toBeInTheDocument();
   });
 
+  it("shows a live generating indicator, not the stale empty state, during a brand-new conversation's first message", async () => {
+    vi.mocked(localRunGenerate).mockImplementation(() => new Promise(() => {}));
+    renderChat();
+    await screen.findByText("Existing chat");
+    fireEvent.click(screen.getByText("New Chat"));
+    await waitFor(() => expect(createConversation).toHaveBeenCalled());
+    await screen.findByText("How can I help?");
+
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "lib-1" } });
+    await waitFor(() => expect(getAssociations).toHaveBeenCalled());
+
+    const textarea = await screen.findByPlaceholderText("Message BRUTE…");
+    fireEvent.change(textarea, { target: { value: "first message ever" } });
+    fireEvent.click(screen.getByText("Send"));
+
+    await screen.findByText("Stop");
+    // The empty-state suggestions must not still be showing once a
+    // generation is actually running - a brand-new conversation has zero
+    // messages until the exchange completes, so this branch used to stay
+    // stuck on the empty state with no sign anything was happening.
+    expect(screen.queryByText("How can I help?")).not.toBeInTheDocument();
+    expect(screen.getByText("Preparing")).toBeInTheDocument();
+  });
+
   it("the composer is disabled and shows a clear no-model state until a model is selected", async () => {
     vi.mocked(listLibrary).mockResolvedValue([]);
     renderChat();

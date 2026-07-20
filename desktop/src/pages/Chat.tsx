@@ -513,7 +513,7 @@ export function Chat() {
         </header>
 
         <div className="chat-messages">
-          {!conversation || conversation.messages.length === 0 ? (
+          {!conversation || (conversation.messages.length === 0 && !running) ? (
             <div className="chat-empty-state">
               <h2>{t("chat_empty_title")}</h2>
               {!ready && <p className="chat-no-model-note">{t("chat_no_model")}</p>}
