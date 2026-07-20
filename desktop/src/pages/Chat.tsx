@@ -52,6 +52,29 @@ function buildPrompt(history: ConversationMessage[], newUserText: string): strin
   return turns.join("\n\n");
 }
 
+/** Real, observed behavior (found during installed-build verification,
+ * not a guess): llama-cli, given a model with an embedded chat template,
+ * prints its own startup banner ("Loading model...", ASCII art, a
+ * `build`/`model`/`ftype` block, an `available commands:` list) and
+ * echoes its own chat-formatted framing ("> User: ...\n\nAssistant:")
+ * around the actual reply, then a trailing `[ Prompt: ... | Generation:
+ * ... ]` stats line and "Exiting...". None of that belongs in a chat
+ * bubble. This is a best-effort, presentation-layer extraction tied to
+ * this exact observed output shape - not a guarantee it holds for every
+ * model/llama.cpp version. If the expected "Assistant:" marker isn't
+ * found, the raw text is returned unchanged rather than mangled, so a
+ * format this doesn't recognize degrades to "shows extra chrome," never
+ * "silently drops real content." See docs/known-limitations.md. */
+function extractAssistantReply(raw: string): string {
+  const marker = "Assistant:";
+  const lastMarkerIndex = raw.lastIndexOf(marker);
+  if (lastMarkerIndex === -1) return raw.trim();
+  let reply = raw.slice(lastMarkerIndex + marker.length);
+  const statsIndex = reply.indexOf("[ Prompt:");
+  if (statsIndex !== -1) reply = reply.slice(0, statsIndex);
+  return reply.trim();
+}
+
 export function Chat() {
   const { t, lang } = useI18n();
   const status = useAppStatus();
@@ -244,7 +267,7 @@ export function Chat() {
       setPhase(null);
     }
 
-    const finalText = streamingRef.current;
+    const finalText = extractAssistantReply(streamingRef.current);
 
     // Persist the exchange (user turn + whatever was generated, even a
     // partial/cancelled response - never silently discarded) unless this
@@ -521,7 +544,7 @@ export function Chat() {
                   <div className="chat-message-role">BRUTE</div>
                   <div className="chat-message-content">
                     {streaming ? (
-                      <Markdown content={streaming} copyLabel={t("chat_copy")} />
+                      <Markdown content={extractAssistantReply(streaming)} copyLabel={t("chat_copy")} />
                     ) : (
                       <span className="chat-generating">{phase && phase !== "generating" ? t(`run_phase_${phase}`) : t("chat_generating")}</span>
                     )}

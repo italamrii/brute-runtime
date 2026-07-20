@@ -276,6 +276,46 @@ describe("Chat page", () => {
     expect(saved.messages[saved.messages.length - 1]?.content).toBe("Hello world");
   });
 
+  it("strips llama-cli banner, chat-template echo, and stats footer from the saved reply", async () => {
+    // Mirrors the real, observed llama-cli output shape for a model with an
+    // embedded chat template: startup banner, its own "> User: ...\n\nAssistant:"
+    // echo, then the actual reply, then a stats footer and "Exiting...".
+    vi.mocked(localRunGenerate).mockImplementation(async () => {
+      emit(
+        "local-run-chunk",
+        "build: 1234 (abcdef)\nmodel: qwen2.5-0.5b-instruct-q4_k_m.gguf\n" +
+          "available commands: /exit /regen /clear /read /glob\n\n> User: go\n\nAssistant:",
+      );
+      emit("local-run-chunk", " Hello world");
+      emit("local-run-chunk", "\n[ Prompt: 354.2 t/s | Generation: 57.7 t/s ]\nExiting...");
+      return {
+        succeeded: true,
+        timed_out: false,
+        cancelled: false,
+        generation_tokens_per_second: 57.7,
+        prompt_tokens_per_second: 354.2,
+        elapsed_secs: 1,
+        error: null,
+      };
+    });
+    renderChat();
+    await screen.findByText("Existing chat");
+    fireEvent.click(screen.getByText("Existing chat"));
+    const textarea = await screen.findByPlaceholderText("Message BRUTE…");
+    fireEvent.change(textarea, { target: { value: "go" } });
+    fireEvent.click(screen.getByText("Send"));
+
+    await waitFor(() => expect(saveConversation).toHaveBeenCalled());
+    const calls = vi.mocked(saveConversation).mock.calls;
+    const saved = calls[calls.length - 1][0];
+    const lastMessage = saved.messages[saved.messages.length - 1];
+    expect(lastMessage?.content).toBe("Hello world");
+    expect(lastMessage?.content).not.toContain("build:");
+    expect(lastMessage?.content).not.toContain("available commands:");
+    expect(lastMessage?.content).not.toContain("[ Prompt:");
+    expect(lastMessage?.content).not.toContain("Exiting...");
+  });
+
   it("Stop calls local_run_cancel while generating", async () => {
     let resolveGeneration: (() => void) | undefined;
     vi.mocked(localRunGenerate).mockImplementation(
@@ -401,8 +441,10 @@ describe("Chat page", () => {
     renderChat();
     await screen.findByText("Existing chat");
     fireEvent.click(screen.getByText("Existing chat"));
-    await screen.findByText("show code");
-    expect(await screen.findByText("python")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("show code")).toBeInTheDocument();
+      expect(screen.getByText("python")).toBeInTheDocument();
+    });
   });
 
   it("Regenerate re-sends the last user message and drops the previous answer", async () => {

@@ -495,3 +495,28 @@ page) and the real `llama-cli.exe` run each spawned their normal/expected
 not conhost creation itself, which is correct Windows behavior) but every
 one of them had zero visible windows at any point in the monitoring
 window - confirming no console ever flashed.
+
+## Chat experience (Phase A): llama-cli banner/echo leaking into saved messages (found and fixed)
+
+A real bug, found by reading an actual saved conversation on disk after a
+live Arabic exchange with the real imported Qwen2.5-0.5B-Instruct model
+(`%LOCALAPPDATA%\BruteRuntime\conversations\`), not a guess: for a model
+with an embedded chat template, `llama-cli` prints its own startup banner
+(build/model/ftype block, `available commands:` list) and echoes its own
+chat-formatted framing (`> User: ...\n\nAssistant:`) around the actual
+reply, followed by a trailing `[ Prompt: ... t/s | Generation: ... t/s ]`
+stats line and `Exiting...`. `runtime::llama_cpp::build_cli_args` already
+passes `-st`/`--no-display-prompt`/`--simple-io`/`-v` (see the `-no-cnv`/
+`-st` fix above) - none of which suppress this template-driven banner/
+echo, and this raw output is the correct, already-verified behavior for
+the CLI/benchmark/Advanced-Run paths, so `build_cli_args` was
+deliberately left unchanged. Fixed instead at the Chat presentation layer
+only: `desktop/src/pages/Chat.tsx`'s `extractAssistantReply()` takes the
+text after the last `Assistant:` marker and before a trailing
+`[ Prompt:` stats block, applied to both the live streaming bubble and
+the message actually persisted via `saveConversation`. This is a
+best-effort extraction tied to this exact observed output shape, not a
+guarantee it holds for every model or llama.cpp version - if the
+`Assistant:` marker isn't found, the raw text is returned unchanged
+rather than mangled, so an unrecognized format degrades to "shows extra
+chrome," never "silently drops real content."
