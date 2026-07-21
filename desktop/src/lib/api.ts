@@ -25,6 +25,7 @@ import type {
   LocalRunOutcome,
   LocateOutcome,
   ModelBuild,
+  Preferences,
   Priority,
   RankingPriority,
   RecommendationDto,
@@ -168,3 +169,8 @@ export const saveConversation = (conversation: Conversation) =>
 export const deleteConversation = (conversation_id: string) =>
   call<void>("conversations_delete", { conversation_id });
 export const clearAllConversations = () => call<number>("conversations_clear_all");
+
+// Local user preference profile -------------------------------------------
+export const getPreferences = () => call<Preferences>("preferences_get");
+export const savePreferences = (prefs: Preferences) => call<void>("preferences_save", { prefs });
+export const resetPreferences = () => call<Preferences>("preferences_reset");

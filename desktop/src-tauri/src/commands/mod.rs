@@ -12,6 +12,7 @@ pub mod discovery;
 pub mod download;
 pub mod hardware;
 pub mod library;
+pub mod preferences;
 pub mod profiles;
 pub mod run;
 pub mod runtime;

@@ -792,3 +792,33 @@ export interface ConversationSummary {
   message_count: number;
   library_id: string | null;
 }
+
+// --- Local user preference profile (Stage B.3) ------------------------
+// Local-only, feeds the recommendation engine. No account, no cloud
+// sync - see brute::preferences.
+
+export type LanguagePreference = "arabic" | "english" | "both";
+export type UseCase = "general_assistant" | "coding" | "documents" | "writing" | "summarization" | "reasoning";
+export type SpeedQualityPriority = "fastest" | "balanced" | "best_quality";
+export type GpuPreference = "no_preference" | "prefer_gpu" | "require_gpu";
+
+export interface Preferences {
+  schema_version: string;
+  language: LanguagePreference;
+  use_case: UseCase;
+  priority: SpeedQualityPriority;
+  arabic_priority: boolean;
+  english_priority: boolean;
+  memory_conservative_mode: boolean;
+  cpu_only: boolean;
+  gpu_preference: GpuPreference;
+  offline_only: boolean;
+  permitted_licenses: string[];
+  commercial_use_required: boolean;
+  preferred_families: string[];
+  excluded_families: string[];
+  max_download_size_bytes: number | null;
+  max_ram_bytes: number | null;
+  max_vram_bytes: number | null;
+  updated_at_rfc3339: string;
+}

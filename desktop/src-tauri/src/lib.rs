@@ -88,6 +88,9 @@ pub fn run() {
             commands::conversations::conversations_save,
             commands::conversations::conversations_delete,
             commands::conversations::conversations_clear_all,
+            commands::preferences::preferences_get,
+            commands::preferences::preferences_save,
+            commands::preferences::preferences_reset,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

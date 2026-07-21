@@ -261,3 +261,29 @@ pub enum ConversationError {
     #[error("no conversation with id {0:?}")]
     NotFound(String),
 }
+
+#[derive(Debug, Error)]
+pub enum PreferencesError {
+    #[error("failed to read preferences {path}: {source}")]
+    Read {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("failed to write preferences {path}: {source}")]
+    Write {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error(
+        "preferences file {path} is not valid JSON or does not match the expected schema: {source}"
+    )]
+    Parse {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+}
