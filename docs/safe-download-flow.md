@@ -80,15 +80,35 @@ explicitly ruled out in Stage B.6.
 ## Tests
 
 Rust (`desktop/src-tauri/src/commands/download.rs`): checksum
-comparison (case-insensitive match/mismatch), disk-space sufficiency
-math (unknown-free-space stays honestly unknown, the safety margin is
-actually required, a clearly-too-small disk is flagged) - all as pure,
-I/O-free unit tests. Frontend (`desktop/src/pages/Discover.test.tsx`,
-"safe verified download flow" describe block): button visibility gated
-on `exact_artifact_url`, destination-picker cancellation, the
-disk-space check and its insufficient-space warning, the expected
-checksum being passed through correctly (including the null case),
-success with checksum-verified status and library import, an honest
+comparison (case-insensitive match/mismatch) and disk-space
+sufficiency math (unknown-free-space stays honestly unknown, the
+safety margin is actually required, a clearly-too-small disk is
+flagged) as pure, I/O-free unit tests. **UPDATED (Stage B.11):**
+`download_blocking` itself (`mod download_blocking_tests`) now has
+real end-to-end coverage too - a hand-rolled HTTP/1.1 server bound to
+an ephemeral loopback port (test-only infrastructure, never shipped,
+never reachable from outside the test process) exercises the actual
+streaming/write/hash logic: a full download's bytes and SHA-256 match
+exactly what the server sent; a correct expected checksum is verified
+and the file kept; a wrong one deletes both the `.partial` file and
+leaves nothing at the destination; a pre-cancelled flag deletes the
+partial file and saves nothing; a genuinely unreachable server (a
+freed ephemeral port with nothing listening) reports a clear error and
+writes nothing. This required extracting `download_blocking`'s
+progress reporting from a direct `AppHandle::emit` call into an
+`on_progress` closure parameter, since a real `AppHandle` cannot be
+constructed in a unit test outside a running Tauri app (the same
+constraint already documented in `commands/runtime.rs`) - the command
+wrapper (`download_model`) still emits the real `download-progress`
+event, just via a closure that owns the `AppHandle` instead of passing
+it three layers deep.
+
+Frontend (`desktop/src/pages/Discover.test.tsx`, "safe verified
+download flow" describe block): button visibility gated on
+`exact_artifact_url`, destination-picker cancellation, the disk-space
+check and its insufficient-space warning, the expected checksum being
+passed through correctly (including the null case), success with
+checksum-verified status and library import, an honest
 checksum-mismatch failure, cancel-in-progress, and Retry from both a
 failure and a cancellation.
 

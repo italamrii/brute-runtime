@@ -87,12 +87,27 @@ pub async fn download_model(
     }
 
     let result = tauri::async_runtime::spawn_blocking(move || {
+        // `download_blocking` itself takes no `AppHandle` - a real one
+        // cannot be constructed in a unit test outside a running Tauri
+        // app (see the same constraint documented in
+        // `commands/runtime.rs`), so the emit is done via this closure
+        // instead, keeping the actual download/streaming/checksum logic
+        // directly unit-testable with a plain in-memory callback.
+        let mut on_progress = |bytes_downloaded: u64, total_bytes: Option<u64>| {
+            let _ = app.emit(
+                "download-progress",
+                DownloadProgressEvent {
+                    bytes_downloaded,
+                    total_bytes,
+                },
+            );
+        };
         download_blocking(
-            &app,
             &url,
             &destination_path,
             expected_sha256.as_deref(),
             &cancel_flag,
+            &mut on_progress,
         )
     })
     .await
@@ -110,11 +125,11 @@ pub async fn download_model(
 }
 
 fn download_blocking(
-    app: &AppHandle,
     url: &str,
     destination_path: &str,
     expected_sha256: Option<&str>,
     cancel_flag: &CancelFlag,
+    on_progress: &mut dyn FnMut(u64, Option<u64>),
 ) -> DownloadOutcome {
     let destination = PathBuf::from(destination_path);
     let partial = PathBuf::from(format!("{destination_path}.partial"));
@@ -171,24 +186,12 @@ fn download_blocking(
         downloaded += n as u64;
         if downloaded - last_emitted >= PROGRESS_EMIT_INTERVAL_BYTES {
             last_emitted = downloaded;
-            let _ = app.emit(
-                "download-progress",
-                DownloadProgressEvent {
-                    bytes_downloaded: downloaded,
-                    total_bytes,
-                },
-            );
+            on_progress(downloaded, total_bytes);
         }
     }
     drop(file);
 
-    let _ = app.emit(
-        "download-progress",
-        DownloadProgressEvent {
-            bytes_downloaded: downloaded,
-            total_bytes,
-        },
-    );
+    on_progress(downloaded, total_bytes);
 
     let sha256 = match sha256_file(&partial) {
         Ok(h) => h,
@@ -380,5 +383,205 @@ mod tests {
             space_is_sufficient(Some(1_000_000), 10_000_000_000),
             Some(false)
         );
+    }
+}
+
+#[cfg(test)]
+mod download_blocking_tests {
+    //! Real end-to-end coverage of `download_blocking` itself - the
+    //! streaming/checksum/cancellation logic above only had its pure
+    //! helper functions (`checksum_matches`, `space_is_sufficient`)
+    //! tested directly until now. A minimal, hand-rolled HTTP/1.1
+    //! server bound to an ephemeral loopback port stands in for a real
+    //! artifact host: it is test-only infrastructure spun up and torn
+    //! down entirely within this process, never shipped, never
+    //! reachable from outside this machine - it does not weaken the
+    //! "the shipped app makes no network requests except an explicit,
+    //! user-triggered download" guarantee, since nothing here ships.
+    use super::*;
+    use std::net::TcpListener;
+
+    fn spawn_test_server(body: &'static [u8]) -> (String, std::thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind an ephemeral loopback port");
+        let port = listener.local_addr().unwrap().port();
+        let handle = std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = stream.read(&mut buf);
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(header.as_bytes());
+                let _ = stream.write_all(body);
+                let _ = stream.flush();
+            }
+        });
+        (format!("http://127.0.0.1:{port}/test.gguf"), handle)
+    }
+
+    /// A real, currently-closed loopback port: bound once to claim a
+    /// free ephemeral port number, then immediately dropped so nothing
+    /// is listening on it - deterministic "connection refused" without
+    /// depending on any specific well-known port being closed on the
+    /// machine running the test.
+    fn unreachable_url() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        format!("http://127.0.0.1:{port}/unreachable.gguf")
+    }
+
+    fn temp_destination(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "brute-download-blocking-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join(name)
+    }
+
+    fn partial_path_for(destination: &std::path::Path) -> PathBuf {
+        PathBuf::from(format!("{}.partial", destination.display()))
+    }
+
+    #[test]
+    fn streams_the_real_body_writes_it_and_computes_a_real_sha256() {
+        const BODY: &[u8] = b"fake gguf bytes for a real streamed download test";
+        let (url, server) = spawn_test_server(BODY);
+        let destination = temp_destination("download-ok.gguf");
+        let cancel_flag = new_cancel_flag();
+        let mut progress_events: Vec<(u64, Option<u64>)> = Vec::new();
+
+        let outcome = download_blocking(
+            &url,
+            destination.to_str().unwrap(),
+            None,
+            &cancel_flag,
+            &mut |d, t| {
+                progress_events.push((d, t));
+            },
+        );
+        server.join().ok();
+
+        assert!(outcome.succeeded);
+        assert!(!outcome.cancelled);
+        assert!(outcome.error.is_none());
+        assert_eq!(outcome.bytes_downloaded, BODY.len() as u64);
+        assert_eq!(outcome.checksum_verified, None);
+        assert_eq!(std::fs::read(&destination).unwrap(), BODY);
+        assert_eq!(outcome.sha256, Some(sha256_file(&destination).unwrap()));
+        assert!(!partial_path_for(&destination).exists());
+        // The final flush-at-completion emit always fires, even for a
+        // body smaller than PROGRESS_EMIT_INTERVAL_BYTES.
+        assert!(!progress_events.is_empty());
+        assert_eq!(
+            progress_events.last(),
+            Some(&(BODY.len() as u64, Some(BODY.len() as u64)))
+        );
+
+        let _ = std::fs::remove_file(&destination);
+    }
+
+    #[test]
+    fn a_matching_expected_checksum_is_verified_and_the_file_is_kept() {
+        const BODY: &[u8] = b"checksum-verified content";
+        let scratch = temp_destination("checksum-scratch.bin");
+        std::fs::write(&scratch, BODY).unwrap();
+        let expected = sha256_file(&scratch).unwrap();
+        let _ = std::fs::remove_file(&scratch);
+
+        let (url, server) = spawn_test_server(BODY);
+        let destination = temp_destination("download-checksum-ok.gguf");
+        let cancel_flag = new_cancel_flag();
+
+        let outcome = download_blocking(
+            &url,
+            destination.to_str().unwrap(),
+            Some(&expected),
+            &cancel_flag,
+            &mut |_, _| {},
+        );
+        server.join().ok();
+
+        assert!(outcome.succeeded);
+        assert_eq!(outcome.checksum_verified, Some(true));
+        assert_eq!(
+            outcome.final_path.as_deref(),
+            Some(destination.to_str().unwrap())
+        );
+        assert!(destination.exists());
+
+        let _ = std::fs::remove_file(&destination);
+    }
+
+    #[test]
+    fn a_checksum_mismatch_deletes_everything_and_never_saves_unverified_content() {
+        const BODY: &[u8] = b"this body will not match the expected hash";
+        let (url, server) = spawn_test_server(BODY);
+        let destination = temp_destination("download-checksum-bad.gguf");
+        let cancel_flag = new_cancel_flag();
+        let wrong_hash = "0".repeat(64);
+
+        let outcome = download_blocking(
+            &url,
+            destination.to_str().unwrap(),
+            Some(&wrong_hash),
+            &cancel_flag,
+            &mut |_, _| {},
+        );
+        server.join().ok();
+
+        assert!(!outcome.succeeded);
+        assert!(!outcome.cancelled);
+        assert_eq!(outcome.checksum_verified, Some(false));
+        assert!(outcome.final_path.is_none());
+        assert!(outcome.error.is_some());
+        assert!(!destination.exists());
+        assert!(!partial_path_for(&destination).exists());
+    }
+
+    #[test]
+    fn a_pre_cancelled_flag_deletes_the_partial_file_and_saves_nothing() {
+        const BODY: &[u8] = b"content that must never reach the final destination once cancelled";
+        let (url, server) = spawn_test_server(BODY);
+        let destination = temp_destination("download-cancelled.gguf");
+        let cancel_flag = new_cancel_flag();
+        request_cancel(&cancel_flag);
+
+        let outcome = download_blocking(
+            &url,
+            destination.to_str().unwrap(),
+            None,
+            &cancel_flag,
+            &mut |_, _| {},
+        );
+        server.join().ok();
+
+        assert!(outcome.cancelled);
+        assert!(!outcome.succeeded);
+        assert!(outcome.final_path.is_none());
+        assert!(!destination.exists());
+        assert!(!partial_path_for(&destination).exists());
+    }
+
+    #[test]
+    fn an_unreachable_server_reports_a_clear_error_and_writes_nothing() {
+        let destination = temp_destination("download-unreachable.gguf");
+        let cancel_flag = new_cancel_flag();
+
+        let outcome = download_blocking(
+            &unreachable_url(),
+            destination.to_str().unwrap(),
+            None,
+            &cancel_flag,
+            &mut |_, _| {},
+        );
+
+        assert!(!outcome.succeeded);
+        assert!(!outcome.cancelled);
+        assert!(outcome.error.is_some());
+        assert!(!destination.exists());
+        assert!(!partial_path_for(&destination).exists());
     }
 }
