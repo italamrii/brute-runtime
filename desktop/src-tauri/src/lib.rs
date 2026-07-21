@@ -46,6 +46,7 @@ pub fn run() {
             commands::catalog::calibrations_list,
             commands::catalog::fit_evaluate,
             commands::catalog::recommend_model,
+            commands::catalog::recommend_v2,
             commands::catalog::explain_fit,
             commands::backends::backends_verify,
             commands::library::library_list,

@@ -7,7 +7,8 @@ records what BRUTE should optimize for when recommending/ranking models.
 There is no account and nothing here is ever uploaded, synced, or shared -
 same guarantee as every other piece of BRUTE's local state.
 
-بياناتك ما تطلع من جهازك. / Your data never leaves your device.
+بياناتك ما تطلع من جهازك.
+Your data never leaves your device.
 
 ## File shape
 

@@ -7,6 +7,7 @@
 //! benchmark claims.
 
 pub mod explain;
+pub mod v2;
 
 use crate::calibration::{self, CalibrationMatch, CalibrationProximity, CalibrationStore};
 use crate::catalog::{Catalog, ModelBuild, TaskCategory};

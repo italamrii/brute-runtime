@@ -13,7 +13,10 @@
 pub mod schema;
 
 use crate::errors::CatalogError;
-pub use schema::{CommercialUse, License, ModelBuild, TaskCategory};
+pub use schema::{
+    CapabilityLevel, CommercialUse, EvidenceSource, License, ModelBuild, SpeedCategory,
+    TaskCategory, VerificationStatus,
+};
 use std::path::Path;
 
 /// Hard ceiling on catalog file size before we even attempt to parse it.

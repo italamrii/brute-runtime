@@ -112,7 +112,10 @@
       "commercial_use": "allowed",
       "gated_access": false,
       "metadata_provenance": "parameter_count from publisher's official model card; file_size_bytes is a rounded order-of-magnitude estimate, not independently verified against a live file in Stage 1.",
-      "last_reviewed": "2026-07-18"
+      "last_reviewed": "2026-07-18",
+      "coding_capability": "good",
+      "evidence_source": "estimated_only",
+      "benchmark_confidence": "Purpose-built Qwen2.5-Coder variant per the publisher's own positioning - not an independent BRUTE benchmark."
     },
     {
       "catalog_id": "llama-3.1-8b-instruct-q4_k_m",

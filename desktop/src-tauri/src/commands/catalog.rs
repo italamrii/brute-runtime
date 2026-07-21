@@ -14,8 +14,13 @@
 use crate::paths;
 use brute::calibration::CalibrationStore;
 use brute::catalog::{self, Catalog, ModelBuild, TaskCategory};
+use brute::preferences::{self, Preferences};
 use brute::profile::HardwareCapabilityProfile;
-use brute::recommend::{self, BuildEvaluation, Priority, Recommendation, explain::Explanation};
+use brute::recommend::{
+    self, BuildEvaluation, Priority, Recommendation,
+    explain::Explanation,
+    v2::{self, RecommendationSetV2},
+};
 use serde::Serialize;
 use tauri::AppHandle;
 
@@ -125,6 +130,31 @@ pub async fn recommend_model(
             recommendation,
             ranking_formula_version: ranked.ranking_formula_version,
         })
+    })
+    .await
+}
+
+/// Recommendation Engine v2 (Stage B.5) - scores every catalog build
+/// against the machine profile *and* the user's saved local preference
+/// profile (`preferences_get`/`preferences_save`). A missing preferences
+/// file is not an error here either - `load_preferences_from` already
+/// returns honest defaults, matching `preferences_get`'s own behavior.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn recommend_v2(app: AppHandle) -> Result<RecommendationSetV2, String> {
+    off_thread(move || {
+        let catalog = load_catalog(&app)?;
+        let calibration_store = load_calibration(&app);
+        let machine_profile = build_machine_profile(&app);
+        let prefs: Preferences =
+            preferences::load_preferences_from(&preferences::default_preferences_path())
+                .map_err(|e| e.to_string())?;
+
+        Ok(v2::recommend_v2(
+            &catalog,
+            &machine_profile,
+            &calibration_store,
+            &prefs,
+        ))
     })
     .await
 }
