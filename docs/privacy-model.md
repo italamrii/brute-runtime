@@ -167,11 +167,53 @@ persistent state beyond two small, inert, local-only additions:
   currently selected, for the status bar and Run workspace
   (`lib/AppStatusContext.tsx`) - never written to disk at all.
 
-No Tauri plugin with network capability (updater, HTTP client, etc.) is
-a dependency of `desktop/src-tauri/Cargo.toml`. The desktop app has
-exactly the same "nothing to disable because nothing can connect"
-property Stage 0-3 established for the CLI - see `docs/security-model.md`
-"Stage 4: Tauri desktop security boundary" for the IPC-layer analysis.
+No Tauri *plugin* with network capability (an auto-updater, a generic
+HTTP-client plugin, etc.) is a dependency of
+`desktop/src-tauri/Cargo.toml`. **UPDATED (Stage B.7):** `ureq` (a
+plain Rust HTTP client crate, not a Tauri plugin) was added as a
+`brute-desktop`-only dependency, used from exactly one place -
+`desktop/src-tauri/src/commands/download.rs`'s `download_model`
+command - and only ever reachable via an explicit user click on a
+"Download" button that itself only renders when a catalog entry's
+`exact_artifact_url` has been independently verified (see
+`docs/safe-download-flow.md`). The root `brute` engine crate still has
+zero network dependencies of any kind - confirmed by inspecting its
+`Cargo.toml` directly, not just by convention. The desktop app
+otherwise retains the same "nothing to disable because nothing can
+connect" property Stage 0-3 established for the CLI - see
+`docs/security-model.md` "Stage 4: Tauri desktop security boundary"
+for the IPC-layer analysis.
+
+## Stage B.10 audit (2026-07-21)
+
+A dedicated, repository-wide sweep (not just the incremental per-
+commit checks each Phase B stage already ran) - grepped
+`desktop/src`, `desktop/src-tauri/src`, and the root `src` for network
+APIs (`fetch`, `XMLHttpRequest`, `WebSocket`, `axios`, telemetry/
+analytics SDK names), `localhost`/loopback references, `target=_blank`/
+`window.open`, and both crates' `Cargo.toml` dependency lists; also
+checked `tauri.conf.json`'s CSP and `capabilities/default.json`'s
+permission set, and re-confirmed `api.ts` is the only file that calls
+Tauri's `invoke()` (`grep -rl invoke desktop/src` returns exactly
+`lib/api.ts` and the test-mock setup file, nothing else).
+
+Findings: the only network-capable path is `ureq` inside
+`download_model`, already documented above and in
+`docs/safe-download-flow.md`; every `localhost`/loopback match is
+either `urlSafety.ts`'s rejection list, its tests, or the Tauri
+navigation guard's own allow-list check (which *rejects* everything
+except the app's own origin - see `desktop/src-tauri/src/lib.rs`); no
+`target=_blank`/`window.open` anywhere (also enforced structurally by
+`structuralGuards.test.ts`); the CSP (`connect-src 'self' ipc:
+http://ipc.localhost`) permits no external origin; `capabilities/
+default.json` grants only `core:default`, `opener:default`, and the
+two dialog open/save permissions - no shell, no filesystem plugin, no
+updater. One cosmetic fix applied: a test fixture in
+`TechnicalValue.test.tsx` had the developer's real local Windows
+username hardcoded into an example path string; replaced with a
+generic placeholder (no functional change, nothing was ever an actual
+secret - it was always a synthetic example path, not a real
+credential).
 
 ## Residual honesty notes
 

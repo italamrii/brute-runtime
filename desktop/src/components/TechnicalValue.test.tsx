@@ -6,7 +6,7 @@ describe("TechnicalValue", () => {
   it("forces ltr direction regardless of the surrounding page direction", () => {
     render(
       <div dir="rtl">
-        <TechnicalValue>C:\Users\asdks\AppData\Local\BRUTE Runtime\runtime\cpu</TechnicalValue>
+        <TechnicalValue>C:\Users\example\AppData\Local\BRUTE Runtime\runtime\cpu</TechnicalValue>
       </div>,
     );
     const el = screen.getByText(/BRUTE Runtime/);
