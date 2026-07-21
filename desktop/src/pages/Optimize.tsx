@@ -5,6 +5,7 @@ import { listLibrary, recommendModel, tuneCancel, tuneDryRun, tuneRun } from "..
 import type { LibraryEntry, Priority, RankingPriority, Recommendation, TunePlanDto, TuneRunDto, TuneProgressEvent } from "../lib/types";
 import { formatBytes, formatTokensPerSecond } from "../lib/format";
 import { useAppStatus } from "../lib/AppStatusContext";
+import { TechnicalValue } from "../components/TechnicalValue";
 
 const PRIORITIES: Priority[] = [
   "fastest",
@@ -63,7 +64,7 @@ function RecommendTab() {
           <label htmlFor="rec-priority">{t("optimize_priority")}</label>
           <select id="rec-priority" value={priority} onChange={(e) => setPriority(e.target.value as Priority)}>
             {PRIORITIES.map((p) => (
-              <option key={p} value={p}>
+              <option key={p} value={p} dir="ltr">
                 {p}
               </option>
             ))}
@@ -80,9 +81,13 @@ function RecommendTab() {
         {!result && <p className="text-tertiary">{t("optimize_result_empty")}</p>}
         {result && (
           <>
-            <h3 style={{ fontSize: 15, marginBottom: 8 }}>{result.recommended.build.display_name}</h3>
+            <TechnicalValue as="h3" style={{ fontSize: 15, marginBottom: 8 }}>
+              {result.recommended.build.display_name}
+            </TechnicalValue>
             <div className="chip-row" style={{ marginBottom: 10 }}>
-              <span className={`badge badge-${fitTone}`}>{result.recommended.fit.state}</span>
+              <TechnicalValue as="span" className={`badge badge-${fitTone}`}>
+                {result.recommended.fit.state}
+              </TechnicalValue>
               <span className="badge badge-inferred">{t("common_inferred")}</span>
             </div>
             <p className="text-secondary" style={{ marginBottom: 10 }}>
@@ -107,20 +112,24 @@ function RecommendTab() {
               <dl style={{ margin: 0 }}>
                 {Object.entries(result.explanation.technical).map(([k, v]) => (
                   <div key={k} className="kv-row">
-                    <span className="kv-row-label">{k}</span>
-                    <span className="kv-row-value">{v ?? "—"}</span>
+                    <TechnicalValue as="span" className="kv-row-label">
+                      {k}
+                    </TechnicalValue>
+                    <TechnicalValue as="span" className="kv-row-value">
+                      {v ?? "—"}
+                    </TechnicalValue>
                   </div>
                 ))}
               </dl>
             )}
             {result.safer_fallback && (
               <p className="text-tertiary" style={{ marginTop: 10 }}>
-                {t("overview_safer_fallback")}: {result.safer_fallback.build.display_name}
+                {t("overview_safer_fallback")}: <TechnicalValue as="span">{result.safer_fallback.build.display_name}</TechnicalValue>
               </p>
             )}
             {result.stronger_optional && (
               <p className="text-tertiary">
-                {t("optimize_stronger")}: {result.stronger_optional.build.display_name}
+                {t("optimize_stronger")}: <TechnicalValue as="span">{result.stronger_optional.build.display_name}</TechnicalValue>
               </p>
             )}
           </>
@@ -219,7 +228,7 @@ function TuneTab() {
           <select id="tune-model" value={modelId} onChange={(e) => setModelId(e.target.value)}>
             <option value="">{t("run_select_model")}</option>
             {models.map((m) => (
-              <option key={m.library_id} value={m.library_id}>
+              <option key={m.library_id} value={m.library_id} dir="ltr">
                 {m.alias ?? m.current_path.split(/[\\/]/).pop()}
               </option>
             ))}
@@ -229,7 +238,7 @@ function TuneTab() {
           <label htmlFor="tune-priority">{t("optimize_priority")}</label>
           <select id="tune-priority" value={priority} onChange={(e) => setPriority(e.target.value as RankingPriority)}>
             {RANKING_PRIORITIES.map((p) => (
-              <option key={p} value={p}>
+              <option key={p} value={p} dir="ltr">
                 {p}
               </option>
             ))}
@@ -270,11 +279,16 @@ function TuneTab() {
             </p>
             {plan.backend_verifications.map((v) => (
               <div key={v.backend} className="kv-row">
-                <span className="kv-row-label">{v.backend}</span>
+                <TechnicalValue as="span" className="kv-row-label">
+                  {v.backend}
+                </TechnicalValue>
                 <span className="kv-row-value">
-                  <span className={`badge badge-${v.status === "verified" ? "good" : v.status === "detected_only" ? "detected" : "unknown"}`}>
+                  <TechnicalValue
+                    as="span"
+                    className={`badge badge-${v.status === "verified" ? "good" : v.status === "detected_only" ? "detected" : "unknown"}`}
+                  >
                     {v.status}
-                  </span>
+                  </TechnicalValue>
                 </span>
               </div>
             ))}
@@ -284,10 +298,17 @@ function TuneTab() {
         {running && (
           <>
             <p className="text-secondary" style={{ marginBottom: 8 }}>
-              {progress
-                ? `${progress.completed_candidates} / ${progress.total_candidates}`
-                : t("common_loading")}
-              {progress?.current_candidate_id ? ` — ${progress.current_candidate_id}` : ""}
+              <TechnicalValue as="span">
+                {progress ? `${progress.completed_candidates} / ${progress.total_candidates}` : t("common_loading")}
+              </TechnicalValue>
+              {progress?.current_candidate_id ? (
+                <>
+                  {" — "}
+                  <TechnicalValue as="span">{progress.current_candidate_id}</TechnicalValue>
+                </>
+              ) : (
+                ""
+              )}
             </p>
             {progressPct !== null && (
               <div className="meter" role="progressbar" aria-valuenow={progressPct} aria-valuemin={0} aria-valuemax={100}>
@@ -295,9 +316,9 @@ function TuneTab() {
               </div>
             )}
             {progress?.current_candidate_id && (
-              <p className="text-tertiary mono" style={{ marginTop: 8, fontSize: 11 }}>
+              <TechnicalValue as="p" className="text-tertiary mono" style={{ marginTop: 8, fontSize: 11 }}>
                 {progress.current_candidate_id}
-              </p>
+              </TechnicalValue>
             )}
           </>
         )}
@@ -310,16 +331,19 @@ function TuneTab() {
             </p>
             {result.ranking.winner ? (
               <>
-                <h4 style={{ marginTop: 10 }}>{t("tune_winner")}: {result.ranking.winner.candidate_id}</h4>
+                <h4 style={{ marginTop: 10 }}>
+                  {t("tune_winner")}: <TechnicalValue as="span">{result.ranking.winner.candidate_id}</TechnicalValue>
+                </h4>
                 <p className="text-secondary">
-                  {formatTokensPerSecond(result.ranking.winner.measurements.mean_generation_tokens_per_second)} ·{" "}
-                  {formatTokensPerSecond(result.ranking.winner.measurements.mean_prompt_tokens_per_second)} ·{" "}
-                  {result.ranking.confidence}
+                  <TechnicalValue as="span">
+                    {formatTokensPerSecond(result.ranking.winner.measurements.mean_generation_tokens_per_second)} ·{" "}
+                    {formatTokensPerSecond(result.ranking.winner.measurements.mean_prompt_tokens_per_second)} · {result.ranking.confidence}
+                  </TechnicalValue>
                 </p>
                 <span className="badge badge-measured">{t("common_measured")}</span>
                 {result.saved_profile_id && (
                   <p className="text-secondary" style={{ marginTop: 8 }}>
-                    {t("tune_saved_profile")}: <span className="mono">{result.saved_profile_id}</span>
+                    {t("tune_saved_profile")}: <TechnicalValue as="span">{result.saved_profile_id}</TechnicalValue>
                   </p>
                 )}
               </>
@@ -328,12 +352,12 @@ function TuneTab() {
             )}
             {result.ranking.runner_up && (
               <p className="text-tertiary" style={{ marginTop: 8 }}>
-                {t("tune_runner_up")}: {result.ranking.runner_up.candidate_id}
+                {t("tune_runner_up")}: <TechnicalValue as="span">{result.ranking.runner_up.candidate_id}</TechnicalValue>
               </p>
             )}
             {result.ranking.safer_fallback && (
               <p className="text-tertiary">
-                {t("overview_safer_fallback")}: {result.ranking.safer_fallback.candidate_id}
+                {t("overview_safer_fallback")}: <TechnicalValue as="span">{result.ranking.safer_fallback.candidate_id}</TechnicalValue>
               </p>
             )}
             {result.ranking.unknown_values.map((u) => (
