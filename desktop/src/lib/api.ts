@@ -27,6 +27,7 @@ import type {
   ModelBuild,
   Preferences,
   Priority,
+  RecommendationSetV2,
   RankingPriority,
   RecommendationDto,
   RefreshOutcomeDto,
@@ -65,6 +66,7 @@ export const recommendModel = (task: TaskCategory | null, priority: Priority) =>
   call<RecommendationDto>("recommend_model", { task, priority });
 export const explainFit = (catalog_id: string, task: TaskCategory | null, priority: Priority) =>
   call<ExplainFitDto>("explain_fit", { catalog_id, task, priority });
+export const recommendV2 = () => call<RecommendationSetV2>("recommend_v2");
 
 // Backends ---------------------------------------------------------------
 export const verifyBackends = (

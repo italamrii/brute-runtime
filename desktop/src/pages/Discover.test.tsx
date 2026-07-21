@@ -3,7 +3,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { I18nProvider } from "../i18n/I18nContext";
 import { Discover } from "./Discover";
-import type { ModelBuild, BuildEvaluation } from "../lib/types";
+import type { BuildRecommendationV2, LibraryEntry, ModelBuild, RecommendationSetV2 } from "../lib/types";
 
 const openUrlMock = vi.fn();
 vi.mock("@tauri-apps/plugin-opener", () => ({
@@ -11,11 +11,11 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
 }));
 
 vi.mock("../lib/api", () => ({
-  listCatalog: vi.fn(),
-  evaluateFit: vi.fn(),
+  recommendV2: vi.fn(),
+  listLibrary: vi.fn(),
 }));
 
-import { listCatalog, evaluateFit } from "../lib/api";
+import { recommendV2, listLibrary } from "../lib/api";
 
 function build(overrides: Partial<ModelBuild> = {}): ModelBuild {
   return {
@@ -74,27 +74,58 @@ function build(overrides: Partial<ModelBuild> = {}): ModelBuild {
   };
 }
 
-function evaluation(b: ModelBuild): BuildEvaluation {
+function entry(b: ModelBuild, overrides: Partial<BuildRecommendationV2> = {}): BuildRecommendationV2 {
   return {
     build: b,
-    estimate: {
-      formula_version: "v1",
-      quality: "coarse_approximation",
-      model_weights_bytes: { value: 4_500_000_000, provenance: "measured", note: "test" },
-      kv_cache_bytes_low: { value: 100, provenance: "measured", note: "test" },
-      kv_cache_bytes_high: { value: 200, provenance: "measured", note: "test" },
-      runtime_overhead_bytes_low: 0,
-      runtime_overhead_bytes_high: 0,
-      os_safety_reserve_bytes: 0,
-      estimated_total_ram_bytes_low: 6_000_000_000,
-      estimated_total_ram_bytes_high: 7_000_000_000,
-      estimated_vram_bytes_low: null,
-      estimated_vram_bytes_high: null,
+    overall_score: 0.8,
+    component_scores: {
+      device_fit: 0.8,
+      arabic: 0,
+      task_fit: 0.5,
+      speed: 0.5,
+      quality: 0.5,
+      trust: 0.5,
+      license_fit: 0.5,
     },
-    fit: { state: "good", reasons: [], headroom_ratio: null, rules_version: "v1" },
-    calibration_match: null,
-    component_scores: {},
-    score: 0.8,
+    confidence: "unknown",
+    rejection_reasons: [],
+    explanation: "Test explanation for why this build was scored this way.",
+    categories: [],
+    fit_state: "good",
+    ...overrides,
+  };
+}
+
+function recommendationSet(entries: BuildRecommendationV2[]): RecommendationSetV2 {
+  return { formula_version: "v2-test", entries };
+}
+
+function libraryEntry(overrides: Partial<LibraryEntry> = {}): LibraryEntry {
+  return {
+    library_id: "lib-1",
+    schema_version: "v1",
+    sha256: "0".repeat(64),
+    file_size_bytes: 4_500_000_000,
+    gguf_version: 3,
+    tensor_count: 10,
+    kv_count: 10,
+    architecture: "qwen2",
+    quantization: "Q4_K_M",
+    parameter_count: 7_000_000_000,
+    current_path: "C:\\models\\test-model.gguf",
+    original_import_path: null,
+    imported_at_rfc3339: "2026-01-01T00:00:00Z",
+    last_verified_at_rfc3339: null,
+    file_modified_at_rfc3339: null,
+    file_status: "unchanged",
+    trust: "catalog_metadata_matched",
+    last_verification: null,
+    catalog_match: { catalog_id: "test-model-q4", confidence: "exact", notes: [] },
+    alias: null,
+    notes: null,
+    quarantine: null,
+    managed_copy: false,
+    ...overrides,
   };
 }
 
@@ -109,10 +140,11 @@ function renderDiscover(lang: "en" | "ar" = "en") {
 
 describe("Discover page — model card navigation safety", () => {
   beforeEach(() => {
+    vi.resetAllMocks();
     openUrlMock.mockReset();
     const b = build();
-    vi.mocked(listCatalog).mockResolvedValue([b]);
-    vi.mocked(evaluateFit).mockResolvedValue(evaluation(b));
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(b)]));
+    vi.mocked(listLibrary).mockResolvedValue([]);
   });
 
   it("clicking a model card opens an internal modal, not a navigation", async () => {
@@ -141,8 +173,7 @@ describe("Discover page — model card navigation safety", () => {
   // of only in a live installed build.
   it("renders a known-license model's details without crashing", async () => {
     const b = build({ license: { status: "known", identifier: "apache-2.0" } });
-    vi.mocked(listCatalog).mockResolvedValue([b]);
-    vi.mocked(evaluateFit).mockResolvedValue(evaluation(b));
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(b)]));
     renderDiscover();
     fireEvent.click(await screen.findByText("Test Model 7B"));
     const dialog = await screen.findByRole("dialog");
@@ -151,8 +182,7 @@ describe("Discover page — model card navigation safety", () => {
 
   it("renders an unknown-license model's details without crashing", async () => {
     const b = build({ license: { status: "unknown" } });
-    vi.mocked(listCatalog).mockResolvedValue([b]);
-    vi.mocked(evaluateFit).mockResolvedValue(evaluation(b));
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(b)]));
     renderDiscover();
     fireEvent.click(await screen.findByText("Test Model 7B"));
     const dialog = await screen.findByRole("dialog");
@@ -162,8 +192,7 @@ describe("Discover page — model card navigation safety", () => {
 
   it("keeps quantization, params, license, and the source URL forced ltr in the Arabic RTL details dialog", async () => {
     const b = build({ license: { status: "known", identifier: "apache-2.0" } });
-    vi.mocked(listCatalog).mockResolvedValue([b]);
-    vi.mocked(evaluateFit).mockResolvedValue(evaluation(b));
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(b)]));
     renderDiscover("ar");
     fireEvent.click(await screen.findByText("Test Model 7B"));
     const dialog = await screen.findByRole("dialog");
@@ -198,10 +227,13 @@ describe("Discover page — model card navigation safety", () => {
   it("Back returns from the open-in-browser confirmation to details", async () => {
     renderDiscover();
     fireEvent.click(await screen.findByText("Test Model 7B"));
+    const dialog = await screen.findByRole("dialog");
     fireEvent.click(await screen.findByText("Open official source"));
     await screen.findByText("Open in browser");
     fireEvent.click(screen.getByText("Back"));
-    expect(await screen.findByText("Q4_K_M")).toBeInTheDocument();
+    // Scoped to the still-open dialog: a "Q4_K_M" quantization filter
+    // <option> also exists in the page's filter bar behind the modal.
+    expect(await within(dialog).findByText("Q4_K_M")).toBeInTheDocument();
     expect(openUrlMock).not.toHaveBeenCalled();
   });
 
@@ -230,8 +262,7 @@ describe("Discover page — model card navigation safety", () => {
 
   it("rejects a localhost official_source_url instead of opening it", async () => {
     const badBuild = build({ official_source_url: "http://localhost:1420/" });
-    vi.mocked(listCatalog).mockResolvedValue([badBuild]);
-    vi.mocked(evaluateFit).mockResolvedValue(evaluation(badBuild));
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(badBuild)]));
     renderDiscover();
     fireEvent.click(await screen.findByText("Test Model 7B"));
     fireEvent.click(await screen.findByText("Open official source"));
@@ -241,8 +272,7 @@ describe("Discover page — model card navigation safety", () => {
 
   it("rejects a malformed official_source_url instead of opening it", async () => {
     const badBuild = build({ official_source_url: "not-a-url" });
-    vi.mocked(listCatalog).mockResolvedValue([badBuild]);
-    vi.mocked(evaluateFit).mockResolvedValue(evaluation(badBuild));
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(badBuild)]));
     renderDiscover();
     fireEvent.click(await screen.findByText("Test Model 7B"));
     fireEvent.click(await screen.findByText("Open official source"));
@@ -252,14 +282,16 @@ describe("Discover page — model card navigation safety", () => {
 
   it("a rejected-URL dialog still offers Back/Close so the user is never trapped", async () => {
     const badBuild = build({ official_source_url: "javascript:alert(1)" });
-    vi.mocked(listCatalog).mockResolvedValue([badBuild]);
-    vi.mocked(evaluateFit).mockResolvedValue(evaluation(badBuild));
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(badBuild)]));
     renderDiscover();
     fireEvent.click(await screen.findByText("Test Model 7B"));
+    const dialog = await screen.findByRole("dialog");
     fireEvent.click(await screen.findByText("Open official source"));
     await screen.findByText("This link was not opened");
     fireEvent.click(screen.getByText("Back"));
-    expect(await screen.findByText("Q4_K_M")).toBeInTheDocument();
+    // Scoped to the still-open dialog: a "Q4_K_M" quantization filter
+    // <option> also exists in the page's filter bar behind the modal.
+    expect(await within(dialog).findByText("Q4_K_M")).toBeInTheDocument();
   });
 
   it("the 'verified source only' filter actually excludes unknown-license models", async () => {
@@ -269,10 +301,7 @@ describe("Discover page — model card navigation safety", () => {
       display_name: "Unknown License Model",
       license: { status: "unknown" },
     });
-    vi.mocked(listCatalog).mockResolvedValue([known, unknown]);
-    vi.mocked(evaluateFit).mockImplementation(async (id: string) =>
-      evaluation(id === "known-1" ? known : unknown),
-    );
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(known), entry(unknown)]));
     renderDiscover();
     await screen.findByText("Known License Model");
     expect(screen.getByText("Unknown License Model")).toBeInTheDocument();
@@ -336,5 +365,153 @@ describe("Discover page — model card navigation safety", () => {
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+});
+
+describe("Discover page — recommendation-engine-v2 integration (Stage B.6)", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    openUrlMock.mockReset();
+  });
+
+  it("shows the installed badge for a build the local library already matches", async () => {
+    const b = build();
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(b, { categories: ["balanced"] })]));
+    vi.mocked(listLibrary).mockResolvedValue([libraryEntry({ catalog_match: { catalog_id: "test-model-q4", confidence: "exact", notes: [] } })]);
+    renderDiscover();
+    await screen.findByText("Test Model 7B");
+    expect(await screen.findByText("Installed")).toBeInTheDocument();
+  });
+
+  it("does not show the installed badge when the library has no match for this build", async () => {
+    const b = build();
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(b)]));
+    vi.mocked(listLibrary).mockResolvedValue([libraryEntry({ catalog_match: { catalog_id: null, confidence: "none", notes: [] } })]);
+    renderDiscover();
+    await screen.findByText("Test Model 7B");
+    expect(screen.queryByText("Installed")).not.toBeInTheDocument();
+  });
+
+  it("the 'installed only' filter hides builds that are not in the local library", async () => {
+    const installed = build({ catalog_id: "installed-1", display_name: "Installed Model" });
+    const notInstalled = build({ catalog_id: "not-installed-1", display_name: "Not Installed Model" });
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(installed), entry(notInstalled)]));
+    vi.mocked(listLibrary).mockResolvedValue([libraryEntry({ catalog_match: { catalog_id: "installed-1", confidence: "exact", notes: [] } })]);
+    renderDiscover();
+    await screen.findByText("Installed Model");
+    fireEvent.click(screen.getByText("Installed only"));
+    expect(screen.getByText("Installed Model")).toBeInTheDocument();
+    expect(screen.queryByText("Not Installed Model")).not.toBeInTheDocument();
+  });
+
+  it("the 'recommended only' filter hides builds whose fit state is not good/excellent", async () => {
+    const good = build({ catalog_id: "good-1", display_name: "Good Fit Model" });
+    const heavy = build({ catalog_id: "heavy-1", display_name: "Heavy Fit Model" });
+    vi.mocked(recommendV2).mockResolvedValue(
+      recommendationSet([entry(good, { fit_state: "good" }), entry(heavy, { fit_state: "experimental" })]),
+    );
+    vi.mocked(listLibrary).mockResolvedValue([]);
+    renderDiscover();
+    await screen.findByText("Good Fit Model");
+    fireEvent.click(screen.getByText("Recommended only"));
+    expect(screen.getByText("Good Fit Model")).toBeInTheDocument();
+    expect(screen.queryByText("Heavy Fit Model")).not.toBeInTheDocument();
+  });
+
+  it("the family filter narrows the grid to one family", async () => {
+    const a = build({ catalog_id: "a-1", family: "family-a", family_id: "family-a", display_name: "Family A Model" });
+    const b = build({ catalog_id: "b-1", family: "family-b", family_id: "family-b", display_name: "Family B Model" });
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(a), entry(b)]));
+    vi.mocked(listLibrary).mockResolvedValue([]);
+    renderDiscover();
+    await screen.findByText("Family A Model");
+    fireEvent.change(screen.getByLabelText("Family"), { target: { value: "family-a" } });
+    expect(screen.getByText("Family A Model")).toBeInTheDocument();
+    expect(screen.queryByText("Family B Model")).not.toBeInTheDocument();
+  });
+
+  it("sorting by smallest download orders by file_size_bytes ascending", async () => {
+    const big = build({ catalog_id: "big-1", display_name: "Big Model", file_size_bytes: 9_000_000_000 });
+    const small = build({ catalog_id: "small-1", display_name: "Small Model", file_size_bytes: 1_000_000_000 });
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(big), entry(small)]));
+    vi.mocked(listLibrary).mockResolvedValue([]);
+    renderDiscover();
+    await screen.findByText("Big Model");
+    fireEvent.change(screen.getByLabelText("Sort by"), { target: { value: "smallest_download" } });
+    const cardTitles = screen.getAllByText(/Model$/).map((el) => el.textContent);
+    expect(cardTitles.indexOf("Small Model")).toBeLessThan(cardTitles.indexOf("Big Model"));
+  });
+
+  it("selecting builds for comparison and opening the compare view shows a side-by-side table", async () => {
+    const a = build({ catalog_id: "a-1", display_name: "Model Alpha" });
+    const b = build({ catalog_id: "b-1", display_name: "Model Beta" });
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(a), entry(b)]));
+    vi.mocked(listLibrary).mockResolvedValue([]);
+    renderDiscover();
+    await screen.findByText("Model Alpha");
+    const compareCheckboxes = screen.getAllByLabelText("Compare");
+    fireEvent.click(compareCheckboxes[0]);
+    fireEvent.click(compareCheckboxes[1]);
+    fireEvent.click(await screen.findByText(/Compare \(2\)/));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Model Alpha")).toBeInTheDocument();
+    expect(within(dialog).getByText("Model Beta")).toBeInTheDocument();
+  });
+
+  it("comparison selection is capped at 4 builds", async () => {
+    const builds = ["a", "b", "c", "d", "e"].map((id) => build({ catalog_id: id, display_name: `Model ${id.toUpperCase()}` }));
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet(builds.map((b) => entry(b))));
+    vi.mocked(listLibrary).mockResolvedValue([]);
+    renderDiscover();
+    await screen.findByText("Model A");
+    const compareCheckboxes = screen.getAllByLabelText("Compare");
+    compareCheckboxes.forEach((cb) => fireEvent.click(cb));
+    expect(screen.getByText(/Compare \(4\)/)).toBeInTheDocument();
+    expect(compareCheckboxes[4]).not.toBeChecked();
+    expect(compareCheckboxes[4]).toBeDisabled();
+  });
+
+  it("shows an informational note when a verified direct download exists, without rendering a download button", async () => {
+    const b = build({
+      exact_artifact_url: "https://huggingface.co/example/test-model-gguf/resolve/main/test-model.Q4_K_M.gguf",
+      artifact_verification: "artifact_url_verified",
+    });
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(b)]));
+    vi.mocked(listLibrary).mockResolvedValue([]);
+    renderDiscover();
+    fireEvent.click(await screen.findByText("Test Model 7B"));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/verified direct download is available/i)).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /download/i })).not.toBeInTheDocument();
+  });
+
+  it("shows the model's plain-language recommendation explanation in the details dialog", async () => {
+    const b = build();
+    vi.mocked(recommendV2).mockResolvedValue(
+      recommendationSet([entry(b, { explanation: "This build fits your device comfortably and supports Arabic well." })]),
+    );
+    vi.mocked(listLibrary).mockResolvedValue([]);
+    renderDiscover();
+    fireEvent.click(await screen.findByText("Test Model 7B"));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/fits your device comfortably/)).toBeInTheDocument();
+  });
+
+  it("shows rejection reasons in the details dialog when a build was hard-rejected", async () => {
+    const b = build();
+    vi.mocked(recommendV2).mockResolvedValue(
+      recommendationSet([
+        entry(b, {
+          fit_state: null,
+          categories: ["unsupported"],
+          rejection_reasons: ["Excluded by your preferred/excluded family settings."],
+        }),
+      ]),
+    );
+    vi.mocked(listLibrary).mockResolvedValue([]);
+    renderDiscover();
+    fireEvent.click(await screen.findByText("Test Model 7B"));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Excluded by your preferred/excluded family settings.")).toBeInTheDocument();
   });
 });

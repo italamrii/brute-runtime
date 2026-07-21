@@ -149,6 +149,7 @@ wall-clock-dependent tiebreak).
   `28/22/14/16/12/8` remaining split are initial, documented constants,
   not tuned against real user feedback - same caveat v1's own weight
   table already carries.
-- No frontend surfaces this yet - `recommend_v2` (the Tauri command) is
-  callable but not wired into any page; that's Stage B.6 (Discover Models
-  redesign) and Stage B.8 (Chat selector integration).
+- **UPDATED (Stage B.6):** the Discover Models page now calls
+  `recommend_v2` directly (see `docs/discover-models.md`). The Chat
+  page's model selector does not call it yet - that's Stage B.8 (Chat
+  selector integration).

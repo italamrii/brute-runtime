@@ -338,6 +338,52 @@ export interface ExplainFitDto {
   explanation: Explanation;
 }
 
+// --- Recommendation Engine v2 (Stage B.5) -------------------------------
+// See docs/recommendation-methodology-v2.md. Preferences-aware - reads
+// the local Preferences profile server-side; the frontend never needs to
+// pass it explicitly.
+
+export type ConfidenceLevel = "high" | "medium" | "low" | "unknown";
+
+export type RecommendationCategory =
+  | "best_match"
+  | "best_arabic"
+  | "fastest"
+  | "balanced"
+  | "best_quality"
+  | "best_coding"
+  | "best_document"
+  | "heavy_but_possible"
+  | "not_recommended"
+  | "unsupported"
+  | "unknown";
+
+export interface ComponentScoresV2 {
+  device_fit: number;
+  arabic: number;
+  task_fit: number;
+  speed: number;
+  quality: number;
+  trust: number;
+  license_fit: number;
+}
+
+export interface BuildRecommendationV2 {
+  build: ModelBuild;
+  overall_score: number;
+  component_scores: ComponentScoresV2;
+  confidence: ConfidenceLevel;
+  rejection_reasons: string[];
+  explanation: string;
+  categories: RecommendationCategory[];
+  fit_state: FitState | null;
+}
+
+export interface RecommendationSetV2 {
+  formula_version: string;
+  entries: BuildRecommendationV2[];
+}
+
 // --- Trusted local model library -------------------------------------
 
 export type FileStatus = "unchanged" | "missing" | "modified" | "replaced" | "inaccessible" | "moved";

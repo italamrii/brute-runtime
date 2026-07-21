@@ -349,11 +349,16 @@ is a deliberate, documented scope cut.
   list rather than guessing - llama.cpp's ARM/NEON kernel dispatch is a
   separate, not-yet-modeled concern.
 - **The "Discover Models" catalog page reuses the existing curated
-  `dev-catalog.json` fixture** - it does not add a second, larger
-  catalog or any remote catalog sync (which remains explicitly out of
-  scope - see the privacy model's no-remote-catalog-sync guarantee).
-  Fit/recommendation data shown there comes from the same
-  `recommend`/`fit` engine calls the Optimize page already used.
+  `dev-catalog.json` file** - it does not add a second, larger catalog
+  or any remote catalog sync (which remains explicitly out of scope -
+  see the privacy model's no-remote-catalog-sync guarantee).
+  **UPDATED (Stage B.6):** Discover now sources its fit/recommendation
+  data from Recommendation Engine v2 (`recommend_v2`,
+  `src/recommend/v2.rs`, see `docs/recommendation-methodology-v2.md`)
+  rather than v1's `recommend`/`fit` calls - it reads the user's local
+  `Preferences` profile (`docs/user-preferences.md`) and cross-
+  references the local library for "Installed" status. The Optimize
+  page still uses v1 unchanged.
 - **The common-folder model auto-discovery list is a fixed, small set**
   (Downloads, Documents, LM Studio's and Ollama's documented model
   cache paths, and `C:\Models` on Windows) - not a configurable list of
@@ -364,25 +369,28 @@ is a deliberate, documented scope cut.
 ## Navigation-safety hardening and branding pass
 
 - **The Discover Models catalog has no in-app "Download" action yet, by
-  design.** `ModelBuild` (`src/catalog/schema.rs`) only carries
-  `official_source_url` - the model's official page/repository, meant
-  for a human to review license and pick the right file, not a
-  verified direct link to one specific `.gguf` artifact. The already-
-  implemented `download_model`/`cancel_download` Tauri commands
+  design.** `ModelBuild` (`src/catalog/schema.rs`) carries
+  `official_source_url` (the model's official page/repository, meant
+  for a human to review license and pick the right file) separately
+  from `exact_artifact_url` (Stage B.1+, only set once a specific
+  `.gguf` file's direct link has actually been verified to resolve -
+  see `VerificationStatus` in `docs/model-catalog-schema.md`). The
+  already-implemented `download_model`/`cancel_download` Tauri commands
   (`desktop/src-tauri/src/commands/download.rs`) correctly stream-
-  download-and-verify *any* http(s) URL a caller gives them, but wiring
-  a "Download" button to `official_source_url` today would silently
-  download the wrong content (an HTML page, not model weights) and
-  mislabel it as a model - exactly the kind of false-success this
-  project refuses to ship. Closing this gap requires sourcing and
-  pinning a real, per-artifact direct file URL (and ideally a
-  publisher-supplied hash) into the catalog schema, which is a data/
-  schema change out of scope for this pass. The Discover Models modal
-  therefore currently offers exactly one external action - "Open
-  official source," which opens the real page in the system browser -
-  and both the Tauri command layer and the Rust unit tests for the
-  download flow remain in place and correct for when real per-artifact
-  URLs are added.
+  download-and-verify *any* http(s) URL a caller gives them, but no
+  page calls them yet. **UPDATED (Stage B.6):** the Discover Models
+  details dialog now shows an honest, non-interactive note - "A
+  verified direct download is available for this file" - whenever
+  `exact_artifact_url` is set (true today for the Jais, Gemma, and Phi-
+  4-mini entries), but deliberately renders no clickable "Download"
+  button, since wiring one up correctly (progress, checksum
+  verification, atomic rename, cancel/retry, disk-space check) is its
+  own dedicated stage (Phase B Step 7 - safe verified download flow),
+  not yet built. Until then, Discover's modal offers exactly one
+  external action - "Open official source," which opens the real page
+  in the system browser - and both the Tauri command layer and the
+  Rust unit tests for the download flow remain in place and correct
+  for when Step 7 wires them up.
 - **A real Cargo build-script staleness bug was caught during installed-
   build verification of this pass.** `tauri_build::build()` (called from
   `desktop/src-tauri/build.rs`) only emits `cargo:rerun-if-changed` for
