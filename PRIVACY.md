@@ -30,6 +30,11 @@ explicit, user-triggered model download in the desktop app
 - Shows live progress and is cancellable.
 - Writes to disk only (via an atomically-renamed `.partial` file) —
   the downloaded file is never executed.
+- Verifies the file's SHA-256 against the catalog's own curated
+  checksum when one is available, deleting the file rather than
+  keeping it on a mismatch — never silently trusting unverified
+  content. Adding a downloaded file to your local library is always a
+  separate, explicit action — nothing auto-imports.
 
 The core `brute` engine crate (the CLI, and everything the desktop app's
 backend wraps) has **zero** network dependencies at the `Cargo.toml`
@@ -52,6 +57,7 @@ your own device — never inside this repository, never synced anywhere:
 | `instance-id` | A random local identifier (not derived from hardware) used only to associate your own saved profiles with each other |
 | `profiles\` | Saved runtime tuning profiles |
 | `library\index.json` | Your local trusted model library index |
+| `preferences.json` | Your local model-recommendation preferences (language, task, priority, and advanced constraints) |
 | `tune-status.json`, `tune-cancel-flag` | Best-effort tuning progress/cancellation state |
 
 Uninstalling BRUTE does not delete this directory or any of your GGUF
