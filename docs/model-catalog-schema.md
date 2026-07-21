@@ -36,6 +36,46 @@ catalog is just metadata pointing at an official source.
 | `license`, `commercial_use`, `gated_access` | See below — the fields this schema is strictest about |
 | `metadata_provenance`, `last_reviewed` | Where these numbers came from and when they were last checked |
 
+## Stage B.1: multi-family identity, trust, and evidence fields
+
+Added on top of the Stage 1 fields above, purely additively — every field
+below is `#[serde(default)]` on the Rust side, so a catalog entry written
+before Stage B.1 (including every existing entry in the dev catalog)
+still loads unchanged, reporting `null`/`"unknown"` for all of them. That
+is the intended, honest behavior for metadata nobody has entered yet —
+never a guess, never a silent upgrade.
+
+| Field | Meaning |
+|---|---|
+| `family_id`, `model_id`, `artifact_id` | Stable slugs separating "which family" (e.g. `qwen2.5`) from "which model+variant" (e.g. `qwen2.5-0.5b-instruct`) from "which exact artifact" (defaults to `catalog_id` when unset) |
+| `exact_model_name`, `version` | The publisher's own exact name string and version, verbatim — distinct from BRUTE's own `display_name` |
+| `context_length` | The single largest context length this artifact supports (distinct from `context_sizes`, which lists the sizes BRUTE has actually tuned/evaluated against) |
+| `file_format`, `runtime_provider`, `minimum_runtime_version` | e.g. `"gguf"`, `"llama.cpp"`, a minimum llama.cpp build |
+| `license_url` | Link to the license text itself, separate from `official_source_url` |
+| `source_verification`, `artifact_verification` | `VerificationStatus` — strict increasing order of evidence: `unknown` → `curated_metadata` → `source_verified` → `artifact_url_verified` → `checksum_verified` → `downloaded` → `integrity_verified` → `runtime_compatible` → `benchmarked` → `device_verified` (plus a terminal `unsupported`). The frontend must never show a Download button below `artifact_url_verified`. |
+| `exact_artifact_url` | The exact, direct, resolvable download URL — deliberately separate from `official_source_url`, which may only be a landing/repository page. **A landing page is never treated as a direct artifact URL.** |
+| `checksum_algorithm`, `checksum_value`, `checksum_source` | Never fabricated — `checksum_source` records where the checksum came from (e.g. a publisher-published manifest vs. BRUTE's own post-download computation) so its provenance is always inspectable |
+| `curator_notes` | Free-form curator commentary, distinct from the structured `metadata_provenance`/`last_reviewed` audit trail |
+| `arabic_capability`, `coding_capability`, `reasoning_capability`, `general_quality` | `CapabilityLevel`: `unknown` / `basic` / `good` / `strong` / `excellent` |
+| `speed_category` | `SpeedCategory`: `unknown` / `slow` / `moderate` / `fast` |
+| `evidence_source` | `EvidenceSource`: `unknown` / `estimated_only` / `measured_on_similar_hardware` / `measured_on_this_device` — the mission's explicit measured-vs-estimated distinction, encoded so it can never be silently blurred |
+| `benchmark_confidence` | Free-form note on how the capability/speed levels above were actually arrived at |
+
+Two consistency rules are enforced at load time (`catalog::validate_entry`),
+not left to the UI to remember:
+
+- `artifact_verification` may never be `artifact_url_verified` or higher
+  while `exact_artifact_url` is unset — a verification claim can never
+  outrun the field it's supposedly verifying.
+- A `checksum_value` may never appear without a `checksum_algorithm`, and
+  `checksum_verified`/`integrity_verified` status requires both.
+
+`TaskCategory` also grew nine variants this stage (`english`,
+`multilingual`, `writing`, `summarization`, `document_analysis`, `vision`,
+`tool_use`, `embeddings`, `reranking`, `speech`) alongside the four from
+Stage 1 (`general_chat`, `coding`, `arabic_chat`, `reasoning`) — additive,
+existing serialized values are unchanged.
+
 ## License and commercial-use honesty rules
 
 ```rust

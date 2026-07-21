@@ -180,6 +180,53 @@ fn validate_entry(build: &ModelBuild) -> Result<(), CatalogError> {
         ));
     }
 
+    // Stage B.1 consistency checks: a verification status may never claim
+    // more evidence than the fields it depends on actually back up. These
+    // guard the exact promise the mission makes - "never treat a landing
+    // page as a direct artifact URL" and "never show Download unless the
+    // exact artifact URL is verified" - at the data layer, not just the UI.
+    if matches!(
+        build.artifact_verification,
+        schema::VerificationStatus::ArtifactUrlVerified
+            | schema::VerificationStatus::ChecksumVerified
+            | schema::VerificationStatus::Downloaded
+            | schema::VerificationStatus::IntegrityVerified
+            | schema::VerificationStatus::RuntimeCompatible
+            | schema::VerificationStatus::Benchmarked
+            | schema::VerificationStatus::DeviceVerified
+    ) && build.exact_artifact_url.is_none()
+    {
+        return Err(invalid(
+            build,
+            "artifact_verification claims a verified artifact but exact_artifact_url is unset",
+        ));
+    }
+    if let Some(url) = &build.exact_artifact_url
+        && !(url.starts_with("https://") || url.starts_with("http://"))
+    {
+        return Err(invalid(
+            build,
+            "exact_artifact_url must be an http(s) URL when present",
+        ));
+    }
+    if matches!(
+        build.artifact_verification,
+        schema::VerificationStatus::ChecksumVerified
+            | schema::VerificationStatus::IntegrityVerified
+    ) && (build.checksum_algorithm.is_none() || build.checksum_value.is_none())
+    {
+        return Err(invalid(
+            build,
+            "checksum-related artifact_verification requires both checksum_algorithm and checksum_value",
+        ));
+    }
+    if build.checksum_value.is_some() && build.checksum_algorithm.is_none() {
+        return Err(invalid(
+            build,
+            "checksum_value is set but checksum_algorithm is missing",
+        ));
+    }
+
     Ok(())
 }
 
@@ -378,6 +425,107 @@ mod tests {
         let unknown_license = catalog.get("dev-fixture-unknown-license").unwrap();
         assert_eq!(unknown_license.license, License::Unknown);
         assert_eq!(unknown_license.commercial_use, CommercialUse::Unknown);
+    }
+
+    #[test]
+    fn stage_b1_fields_default_to_unknown_when_absent_from_json() {
+        // A catalog entry written before Stage B.1 (no new fields at all)
+        // must still load, with every new field reporting the honest
+        // "nobody has entered this yet" answer - never a guess.
+        let path = tmp_path("legacy_entry.json");
+        let json = format!(r#"{{"builds": [{}]}}"#, minimal_valid_build_json("legacy"));
+        write_json(&path, &json);
+
+        let catalog = load_catalog(&path).expect("legacy-shaped entry must still load");
+        let build = catalog.get("legacy").unwrap();
+        assert_eq!(build.family_id, None);
+        assert_eq!(build.artifact_id, None);
+        assert_eq!(build.exact_artifact_url, None);
+        assert_eq!(
+            build.source_verification,
+            schema::VerificationStatus::Unknown
+        );
+        assert_eq!(
+            build.artifact_verification,
+            schema::VerificationStatus::Unknown
+        );
+        assert_eq!(build.arabic_capability, schema::CapabilityLevel::Unknown);
+        assert_eq!(build.evidence_source, schema::EvidenceSource::Unknown);
+
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn rejects_verified_artifact_status_with_no_exact_artifact_url() {
+        // The data layer must never let a claim of "verified artifact"
+        // exist without the URL it's supposedly verifying - this is the
+        // schema-level backstop for "never show Download unless the exact
+        // artifact URL is verified."
+        let path = tmp_path("claims_verified_no_url.json");
+        let mut entry: serde_json::Value =
+            serde_json::from_str(&minimal_valid_build_json("claims-verified")).unwrap();
+        entry["artifact_verification"] = serde_json::json!("artifact_url_verified");
+        let json = format!(r#"{{"builds": [{entry}]}}"#);
+        write_json(&path, &json);
+
+        let err = load_catalog(&path).unwrap_err();
+        assert!(matches!(err, CatalogError::InvalidEntry { .. }));
+
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn accepts_verified_artifact_status_when_the_url_is_present() {
+        let path = tmp_path("claims_verified_with_url.json");
+        let mut entry: serde_json::Value =
+            serde_json::from_str(&minimal_valid_build_json("claims-verified-ok")).unwrap();
+        entry["artifact_verification"] = serde_json::json!("artifact_url_verified");
+        entry["exact_artifact_url"] = serde_json::json!(
+            "https://huggingface.co/test/test-model/resolve/main/test-model.Q4_K_M.gguf"
+        );
+        let json = format!(r#"{{"builds": [{entry}]}}"#);
+        write_json(&path, &json);
+
+        let catalog = load_catalog(&path).expect("should load");
+        assert_eq!(
+            catalog
+                .get("claims-verified-ok")
+                .unwrap()
+                .artifact_verification,
+            schema::VerificationStatus::ArtifactUrlVerified
+        );
+
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn rejects_checksum_value_without_an_algorithm() {
+        let path = tmp_path("checksum_no_algo.json");
+        let mut entry: serde_json::Value =
+            serde_json::from_str(&minimal_valid_build_json("checksum-no-algo")).unwrap();
+        entry["checksum_value"] = serde_json::json!("a".repeat(64));
+        let json = format!(r#"{{"builds": [{entry}]}}"#);
+        write_json(&path, &json);
+
+        let err = load_catalog(&path).unwrap_err();
+        assert!(matches!(err, CatalogError::InvalidEntry { .. }));
+
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn rejects_non_http_exact_artifact_url() {
+        let path = tmp_path("bad_exact_url.json");
+        let mut entry: serde_json::Value =
+            serde_json::from_str(&minimal_valid_build_json("bad-exact-url")).unwrap();
+        entry["exact_artifact_url"] = serde_json::json!("file:///etc/passwd");
+        let json = format!(r#"{{"builds": [{entry}]}}"#);
+        write_json(&path, &json);
+
+        let err = load_catalog(&path).unwrap_err();
+        assert!(matches!(err, CatalogError::InvalidEntry { .. }));
+
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
     #[test]

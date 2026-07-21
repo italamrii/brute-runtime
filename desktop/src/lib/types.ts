@@ -126,7 +126,44 @@ export interface BackendVerification {
 
 // --- Catalog / fit / recommendation ---------------------------------
 
-export type TaskCategory = "general_chat" | "coding" | "arabic_chat" | "reasoning";
+export type TaskCategory =
+  | "general_chat"
+  | "coding"
+  | "arabic_chat"
+  | "reasoning"
+  | "english"
+  | "multilingual"
+  | "writing"
+  | "summarization"
+  | "document_analysis"
+  | "vision"
+  | "tool_use"
+  | "embeddings"
+  | "reranking"
+  | "speech";
+
+// Mirrors Rust's VerificationStatus - strict increasing order of evidence.
+// `unknown`/`curated_metadata` never imply a verified artifact; only
+// `artifact_url_verified` and above do (see components/TechnicalValue-
+// adjacent Discover download-gating logic).
+export type VerificationStatus =
+  | "unknown"
+  | "curated_metadata"
+  | "source_verified"
+  | "artifact_url_verified"
+  | "checksum_verified"
+  | "downloaded"
+  | "integrity_verified"
+  | "runtime_compatible"
+  | "benchmarked"
+  | "device_verified"
+  | "unsupported";
+
+export type CapabilityLevel = "unknown" | "basic" | "good" | "strong" | "excellent";
+
+export type SpeedCategory = "unknown" | "slow" | "moderate" | "fast";
+
+export type EvidenceSource = "unknown" | "estimated_only" | "measured_on_similar_hardware" | "measured_on_this_device";
 
 // Mirrors the Rust `#[serde(tag = "status", rename_all = "snake_case")]`
 // internally-tagged enum exactly: always an object with a `status` field,
@@ -162,6 +199,34 @@ export interface ModelBuild {
   gated_access: boolean | null;
   metadata_provenance: string;
   last_reviewed: string;
+
+  // Stage B.1 fields - always present on the wire (Rust's #[serde(default)]
+  // only affects deserialization), null/"unknown" for any catalog entry
+  // written before this stage.
+  family_id: string | null;
+  model_id: string | null;
+  artifact_id: string | null;
+  exact_model_name: string | null;
+  version: string | null;
+  context_length: number | null;
+  file_format: string | null;
+  runtime_provider: string | null;
+  minimum_runtime_version: string | null;
+  license_url: string | null;
+  source_verification: VerificationStatus;
+  artifact_verification: VerificationStatus;
+  exact_artifact_url: string | null;
+  checksum_algorithm: string | null;
+  checksum_value: string | null;
+  checksum_source: string | null;
+  curator_notes: string | null;
+  arabic_capability: CapabilityLevel;
+  coding_capability: CapabilityLevel;
+  reasoning_capability: CapabilityLevel;
+  general_quality: CapabilityLevel;
+  speed_category: SpeedCategory;
+  evidence_source: EvidenceSource;
+  benchmark_confidence: string | null;
 }
 
 export interface Catalog {
