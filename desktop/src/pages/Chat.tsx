@@ -13,10 +13,12 @@ import {
   listLibrary,
   localRunCancel,
   localRunGenerate,
+  recommendV2,
   saveConversation,
   showConversation,
 } from "../lib/api";
 import type {
+  BuildRecommendationV2,
   Conversation,
   ConversationMessage,
   ConversationSummary,
@@ -24,6 +26,74 @@ import type {
   RunPhase,
   RuntimeProfile,
 } from "../lib/types";
+
+type ChatMode = "manual" | "auto" | "fastest" | "balanced" | "best_quality" | "arabic" | "coding" | "documents" | "vision";
+
+const CHAT_MODES: Exclude<ChatMode, "manual">[] = [
+  "auto",
+  "fastest",
+  "balanced",
+  "best_quality",
+  "arabic",
+  "coding",
+  "documents",
+  "vision",
+];
+
+/** Ranks the user's already-*installed* library entries (never the full
+ * catalog - Chat can only run a model that's actually on disk) for the
+ * chosen mode, using the same real component scores Discover Models
+ * shows (`recommend_v2`, see docs/recommendation-methodology-v2.md).
+ * Only entries with a real (non-"none"-confidence) `catalog_match` and
+ * zero hard-rejection reasons are eligible - an installed model with no
+ * catalog match simply cannot be scored, and is honestly excluded
+ * rather than guessed at. Ties break on `library_id` ascending, so the
+ * result is deterministic across repeated calls with the same inputs.
+ */
+function pickModelForMode(
+  mode: Exclude<ChatMode, "manual">,
+  models: LibraryEntry[],
+  recommendations: BuildRecommendationV2[],
+): { model: LibraryEntry; entry: BuildRecommendationV2 } | null {
+  const byId = new Map(recommendations.map((r) => [r.build.catalog_id, r]));
+  let pool = models
+    .map((model) => {
+      const entry = model.catalog_match.catalog_id && model.catalog_match.confidence !== "none" ? byId.get(model.catalog_match.catalog_id) : undefined;
+      return entry && entry.rejection_reasons.length === 0 ? { model, entry } : null;
+    })
+    .filter((c): c is { model: LibraryEntry; entry: BuildRecommendationV2 } => c !== null);
+
+  if (mode === "coding") pool = pool.filter((c) => c.entry.build.task_categories.includes("coding"));
+  if (mode === "documents") pool = pool.filter((c) => c.entry.build.task_categories.includes("document_analysis"));
+  if (mode === "vision") pool = pool.filter((c) => c.entry.build.task_categories.includes("vision"));
+  if (mode === "arabic") pool = pool.filter((c) => c.entry.component_scores.arabic > 0);
+
+  if (pool.length === 0) return null;
+
+  function scoreOf(c: { entry: BuildRecommendationV2 }): number {
+    const s = c.entry.component_scores;
+    switch (mode) {
+      case "fastest":
+        return s.speed;
+      case "best_quality":
+        return s.quality;
+      case "arabic":
+        return s.arabic;
+      case "balanced":
+        return Math.min(s.device_fit, s.task_fit, s.quality, s.speed);
+      default:
+        return c.entry.overall_score;
+    }
+  }
+
+  return pool.reduce((best, candidate) => {
+    const bestScore = scoreOf(best);
+    const candidateScore = scoreOf(candidate);
+    if (candidateScore > bestScore) return candidate;
+    if (candidateScore < bestScore) return best;
+    return candidate.model.library_id < best.model.library_id ? candidate : best;
+  });
+}
 
 /** A simple heuristic, not a full bidi algorithm: if the first strong
  * (Arabic-script) character appears before the first Latin letter, the
@@ -114,6 +184,9 @@ export function Chat() {
   const [modelId, setModelId] = useState("");
   const [profiles, setProfiles] = useState<RuntimeProfile[]>([]);
   const [profileId, setProfileId] = useState("");
+  const [recommendations, setRecommendations] = useState<BuildRecommendationV2[] | null>(null);
+  const [mode, setMode] = useState<ChatMode>("manual");
+  const [modeNote, setModeNote] = useState<string | null>(null);
 
   const [prompt, setPrompt] = useState("");
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
@@ -151,6 +224,12 @@ export function Chat() {
       })
       .catch(() => setModels([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    recommendV2()
+      .then((set) => setRecommendations(set.entries))
+      .catch(() => setRecommendations(null));
   }, []);
 
   useEffect(() => {
@@ -375,9 +454,26 @@ export function Chat() {
     void navigator.clipboard.writeText(text);
   }
 
+  function applyMode(next: Exclude<ChatMode, "manual">) {
+    setMode(next);
+    setModeNote(null);
+    if (!recommendations) return;
+    const picked = pickModelForMode(next, models, recommendations);
+    if (!picked) {
+      setModeNote(t("chat_mode_no_match"));
+      return;
+    }
+    setModelId(picked.model.library_id);
+  }
+
   const ready = Boolean(modelId && profileId && status.llamaBinPath);
   const selectedModel = useMemo(() => models.find((m) => m.library_id === modelId) ?? null, [models, modelId]);
   const selectedProfile = useMemo(() => profiles.find((p) => p.profile_id === profileId) ?? null, [profiles, profileId]);
+  const selectedModeEntry = useMemo(() => {
+    if (mode === "manual" || !selectedModel || !recommendations) return null;
+    if (!selectedModel.catalog_match.catalog_id || selectedModel.catalog_match.confidence === "none") return null;
+    return recommendations.find((r) => r.build.catalog_id === selectedModel.catalog_match.catalog_id) ?? null;
+  }, [mode, selectedModel, recommendations]);
   const suggestions = [
     t("chat_suggestion_1"),
     t("chat_suggestion_2"),
@@ -472,7 +568,11 @@ export function Chat() {
             <select
               aria-label={t("chat_model_label")}
               value={modelId}
-              onChange={(e) => setModelId(e.target.value)}
+              onChange={(e) => {
+                setMode("manual");
+                setModeNote(null);
+                setModelId(e.target.value);
+              }}
               disabled={running}
             >
               <option value="">{t("chat_select_model_placeholder")}</option>
@@ -511,6 +611,33 @@ export function Chat() {
             </span>
           </div>
         </header>
+
+        <div className="chat-mode-row" role="group" aria-label={t("chat_mode_label")}>
+          <div className="tab-row">
+            {CHAT_MODES.map((m) => (
+              <button
+                key={m}
+                type="button"
+                className={`tab-btn ${mode === m ? "is-active" : ""}`}
+                onClick={() => applyMode(m)}
+                disabled={running}
+              >
+                {t(`chat_mode_${m}`)}
+              </button>
+            ))}
+          </div>
+          {modeNote && (
+            <p className="text-tertiary" style={{ fontSize: 11, margin: 0 }}>
+              {modeNote}
+            </p>
+          )}
+          {selectedModeEntry && !modeNote && (
+            <p className="text-tertiary" style={{ fontSize: 11, margin: 0 }}>
+              <strong>{t("chat_mode_why")}: </strong>
+              {selectedModeEntry.explanation}
+            </p>
+          )}
+        </div>
 
         <div className="chat-messages">
           {!conversation || (conversation.messages.length === 0 && !running) ? (

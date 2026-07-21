@@ -1795,6 +1795,19 @@ table.data-table {
   flex: none;
 }
 
+.chat-mode-row {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-5);
+  border-bottom: 1px solid var(--border-hairline);
+}
+.chat-mode-row .tab-row {
+  margin-bottom: 0;
+}
+
 .chat-messages {
   flex: 1;
   overflow-y: auto;

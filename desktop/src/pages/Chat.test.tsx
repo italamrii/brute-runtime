@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, cleanup, within } from "@testing-li
 import { I18nProvider } from "../i18n/I18nContext";
 import { AppStatusProvider } from "../lib/AppStatusContext";
 import { Chat } from "./Chat";
-import type { Conversation, ConversationSummary, LibraryEntry, RuntimeProfile } from "../lib/types";
+import type { BuildRecommendationV2, Conversation, ConversationSummary, LibraryEntry, ModelBuild, RuntimeProfile } from "../lib/types";
 
 const listenCallbacks: Record<string, ((event: { payload: unknown }) => void)[]> = {};
 function emit(eventName: string, payload: unknown) {
@@ -30,6 +30,7 @@ vi.mock("../lib/api", () => ({
   localRunGenerate: vi.fn(),
   localRunCancel: vi.fn(),
   resolveRuntime: vi.fn(),
+  recommendV2: vi.fn(),
 }));
 
 import {
@@ -41,13 +42,14 @@ import {
   listLibrary,
   localRunCancel,
   localRunGenerate,
+  recommendV2,
   resolveRuntime,
   saveConversation,
   showConversation,
 } from "../lib/api";
 import { listen } from "@tauri-apps/api/event";
 
-function libraryEntry(): LibraryEntry {
+function libraryEntry(overrides: Partial<LibraryEntry> = {}): LibraryEntry {
   return {
     library_id: "lib-1",
     schema_version: "v1",
@@ -72,6 +74,86 @@ function libraryEntry(): LibraryEntry {
     notes: null,
     quarantine: null,
     managed_copy: false,
+    ...overrides,
+  };
+}
+
+function catalogBuild(overrides: Partial<ModelBuild> = {}): ModelBuild {
+  return {
+    catalog_id: "catalog-1",
+    family: "test-family",
+    display_name: "Test Family 1B",
+    publisher: "Test Publisher",
+    official_source_url: "https://huggingface.co/example/test",
+    official_repository_id: "example/test",
+    filename: "test.Q4_K_M.gguf",
+    architecture: "qwen2",
+    parameter_count: 500_000_000,
+    quantization: "Q4_K_M",
+    file_size_bytes: 500_000_000,
+    estimated_disk_bytes: null,
+    estimated_runtime_memory_bytes: null,
+    min_recommended_ram_bytes: 2_000_000_000,
+    min_recommended_vram_bytes: null,
+    supported_backends: ["cpu"],
+    context_sizes: [4096],
+    task_categories: ["general_chat"],
+    short_description: "A test model.",
+    strength: "General purpose.",
+    limitation: "None noted.",
+    license: { status: "known", identifier: "apache-2.0" },
+    commercial_use: "unknown",
+    gated_access: null,
+    metadata_provenance: "test fixture",
+    last_reviewed: "2026-01-01",
+    family_id: null,
+    model_id: null,
+    artifact_id: null,
+    source_repository: null,
+    exact_model_name: null,
+    version: null,
+    context_length: null,
+    file_format: null,
+    runtime_provider: null,
+    minimum_runtime_version: null,
+    license_url: null,
+    source_verification: "unknown",
+    artifact_verification: "unknown",
+    exact_artifact_url: null,
+    checksum_algorithm: null,
+    checksum_value: null,
+    checksum_source: null,
+    curator_notes: null,
+    arabic_capability: "unknown",
+    coding_capability: "unknown",
+    reasoning_capability: "unknown",
+    general_quality: "unknown",
+    speed_category: "unknown",
+    evidence_source: "unknown",
+    benchmark_confidence: null,
+    ...overrides,
+  };
+}
+
+function recommendationEntry(build: ModelBuild, overrides: Partial<BuildRecommendationV2> = {}): BuildRecommendationV2 {
+  return {
+    build,
+    overall_score: 0.5,
+    component_scores: {
+      device_fit: 0.5,
+      arabic: 0,
+      task_fit: 0.5,
+      speed: 0.5,
+      quality: 0.5,
+      trust: 0.5,
+      license_fit: 0.5,
+    },
+    confidence: "unknown",
+    rejection_reasons: [],
+    explanation: "Test explanation.",
+    categories: [],
+    fit_state: "good",
+    ...overrides,
   };
 }
 
@@ -182,6 +264,7 @@ describe("Chat page", () => {
       error: null,
     });
     vi.mocked(localRunCancel).mockResolvedValue(undefined);
+    vi.mocked(recommendV2).mockResolvedValue({ formula_version: "v2-test", entries: [] });
     vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.spyOn(window, "prompt").mockReturnValue("Renamed chat");
   });
@@ -523,5 +606,122 @@ describe("Chat page", () => {
     const args = vi.mocked(localRunGenerate).mock.calls[0][0];
     expect(args.prompt).toContain("edited question");
     expect(args.prompt).not.toContain("hi there");
+  });
+});
+
+describe("Chat page — model mode selector (Stage B.8)", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    for (const key of Object.keys(listenCallbacks)) delete listenCallbacks[key];
+    vi.mocked(listen).mockImplementation(captureListen as never);
+    vi.mocked(resolveRuntime).mockResolvedValue({
+      source: "bundled",
+      binary_dir: "C:\\Program Files\\BRUTE Runtime\\runtime\\cpu",
+      cli_verified: true,
+      bench_verified: true,
+      detail: "ok",
+    });
+    vi.mocked(listConversations).mockResolvedValue([]);
+    vi.mocked(getAssociations).mockResolvedValue({ runtime_profiles: [runtimeProfile()], calibration_record_count: 0 });
+  });
+
+  it("picking Fastest selects the installed, catalog-matched model with the highest speed score", async () => {
+    const slowModel = libraryEntry({
+      library_id: "lib-slow",
+      alias: "Slow Model",
+      catalog_match: { catalog_id: "cat-slow", confidence: "exact", notes: [] },
+    });
+    const fastModel = libraryEntry({
+      library_id: "lib-fast",
+      alias: "Fast Model",
+      catalog_match: { catalog_id: "cat-fast", confidence: "exact", notes: [] },
+    });
+    vi.mocked(listLibrary).mockResolvedValue([slowModel, fastModel]);
+    vi.mocked(recommendV2).mockResolvedValue({
+      formula_version: "v2-test",
+      entries: [
+        recommendationEntry(catalogBuild({ catalog_id: "cat-slow" }), { component_scores: { device_fit: 0.5, arabic: 0, task_fit: 0.5, speed: 0.2, quality: 0.5, trust: 0.5, license_fit: 0.5 } }),
+        recommendationEntry(catalogBuild({ catalog_id: "cat-fast" }), { component_scores: { device_fit: 0.5, arabic: 0, task_fit: 0.5, speed: 0.9, quality: 0.5, trust: 0.5, license_fit: 0.5 } }),
+      ],
+    });
+    renderChat();
+    await screen.findByText(/Fast Model/, { selector: "option" });
+    fireEvent.click(screen.getByText("Fastest"));
+    await waitFor(() => expect((screen.getByLabelText("Model") as HTMLSelectElement).value).toBe("lib-fast"));
+  });
+
+  it("shows a 'no match' note and leaves the current model unchanged when no installed model fits the mode", async () => {
+    const onlyModel = libraryEntry({ catalog_match: { catalog_id: null, confidence: "none", notes: [] } });
+    vi.mocked(listLibrary).mockResolvedValue([onlyModel]);
+    vi.mocked(recommendV2).mockResolvedValue({ formula_version: "v2-test", entries: [] });
+    renderChat();
+    await screen.findByText(new RegExp(onlyModel.alias as string), { selector: "option" });
+    const select = screen.getByLabelText("Model") as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "lib-1" } });
+    fireEvent.click(screen.getByText("Arabic"));
+    expect(await screen.findByText(/no installed model matches this mode/i)).toBeInTheDocument();
+    expect(select.value).toBe("lib-1");
+  });
+
+  it("only considers installed models tagged for coding when the Coding mode is picked", async () => {
+    const generalModel = libraryEntry({
+      library_id: "lib-general",
+      alias: "General Model",
+      catalog_match: { catalog_id: "cat-general", confidence: "exact", notes: [] },
+    });
+    const codingModel = libraryEntry({
+      library_id: "lib-coding",
+      alias: "Coding Model",
+      catalog_match: { catalog_id: "cat-coding", confidence: "exact", notes: [] },
+    });
+    vi.mocked(listLibrary).mockResolvedValue([generalModel, codingModel]);
+    vi.mocked(recommendV2).mockResolvedValue({
+      formula_version: "v2-test",
+      entries: [
+        recommendationEntry(catalogBuild({ catalog_id: "cat-general", task_categories: ["general_chat"] }), { overall_score: 0.9 }),
+        recommendationEntry(catalogBuild({ catalog_id: "cat-coding", task_categories: ["coding"] }), { overall_score: 0.4 }),
+      ],
+    });
+    renderChat();
+    await screen.findByText(/Coding Model/, { selector: "option" });
+    fireEvent.click(screen.getByText("Coding"));
+    await waitFor(() => expect((screen.getByLabelText("Model") as HTMLSelectElement).value).toBe("lib-coding"));
+  });
+
+  it("manually changing the model dropdown clears the active mode indicator", async () => {
+    const modelA = libraryEntry({
+      library_id: "lib-a",
+      alias: "Model A",
+      catalog_match: { catalog_id: "cat-a", confidence: "exact", notes: [] },
+    });
+    const modelB = libraryEntry({ library_id: "lib-b", alias: "Model B" });
+    vi.mocked(listLibrary).mockResolvedValue([modelA, modelB]);
+    vi.mocked(recommendV2).mockResolvedValue({
+      formula_version: "v2-test",
+      entries: [recommendationEntry(catalogBuild({ catalog_id: "cat-a" }))],
+    });
+    renderChat();
+    await screen.findByText(/Model A/, { selector: "option" });
+    fireEvent.click(screen.getByText("Balanced"));
+    await waitFor(() => expect(screen.getByText("Balanced")).toHaveClass("is-active"));
+    fireEvent.change(screen.getByLabelText("Model"), { target: { value: "lib-b" } });
+    expect(screen.getByText("Balanced")).not.toHaveClass("is-active");
+  });
+
+  it("shows the plain-language explanation for the model a mode picked", async () => {
+    const modelA = libraryEntry({
+      library_id: "lib-a",
+      alias: "Model A",
+      catalog_match: { catalog_id: "cat-a", confidence: "exact", notes: [] },
+    });
+    vi.mocked(listLibrary).mockResolvedValue([modelA]);
+    vi.mocked(recommendV2).mockResolvedValue({
+      formula_version: "v2-test",
+      entries: [recommendationEntry(catalogBuild({ catalog_id: "cat-a" }), { explanation: "Fits comfortably on this device." })],
+    });
+    renderChat();
+    await screen.findByText(/Model A/, { selector: "option" });
+    fireEvent.click(screen.getByText("Auto"));
+    expect(await screen.findByText(/fits comfortably on this device/i)).toBeInTheDocument();
   });
 });

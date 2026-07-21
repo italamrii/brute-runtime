@@ -150,6 +150,7 @@ wall-clock-dependent tiebreak).
   not tuned against real user feedback - same caveat v1's own weight
   table already carries.
 - **UPDATED (Stage B.6):** the Discover Models page now calls
-  `recommend_v2` directly (see `docs/discover-models.md`). The Chat
-  page's model selector does not call it yet - that's Stage B.8 (Chat
-  selector integration).
+  `recommend_v2` directly (see `docs/discover-models.md`).
+  **UPDATED (Stage B.8):** the Chat page's mode chooser also calls it,
+  restricted to already-installed models (see
+  `docs/chat-model-selector.md`).
