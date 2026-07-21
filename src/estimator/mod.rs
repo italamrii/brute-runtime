@@ -318,6 +318,7 @@ mod tests {
             last_reviewed: "2026-07-18".to_string(),
             family_id: None,
             model_id: None,
+            source_repository: None,
             artifact_id: None,
             exact_model_name: None,
             version: None,

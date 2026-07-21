@@ -616,7 +616,11 @@ mod tests {
 
     #[test]
     fn unknown_license_fixture_still_ranks_but_never_claims_commercial_use_allowed() {
-        let catalog = dev_catalog();
+        // Synthetic Unknown-license data lives in test-fixtures.json, never
+        // in the file production code actually loads (dev-catalog.json) -
+        // see catalog::tests::production_catalog_never_contains_the_test_fixture_entry.
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("data/catalog/test-fixtures.json");
+        let catalog = crate::catalog::load_catalog(&path).expect("test fixtures must load");
         let build = catalog.get("dev-fixture-unknown-license").unwrap();
         assert_eq!(build.commercial_use, crate::catalog::CommercialUse::Unknown);
         assert_ne!(build.commercial_use, crate::catalog::CommercialUse::Allowed);

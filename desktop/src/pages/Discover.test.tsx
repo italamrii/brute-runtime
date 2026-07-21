@@ -48,6 +48,7 @@ function build(overrides: Partial<ModelBuild> = {}): ModelBuild {
     family_id: null,
     model_id: null,
     artifact_id: null,
+    source_repository: null,
     exact_model_name: null,
     version: null,
     context_length: null,

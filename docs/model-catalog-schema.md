@@ -48,6 +48,7 @@ never a guess, never a silent upgrade.
 | Field | Meaning |
 |---|---|
 | `family_id`, `model_id`, `artifact_id` | Stable slugs separating "which family" (e.g. `qwen2.5`) from "which model+variant" (e.g. `qwen2.5-0.5b-instruct`) from "which exact artifact" (defaults to `catalog_id` when unset) |
+| `source_repository` | Explicit alias for `official_repository_id`, for entries curated under Stage B.1's exact field-name list - both carry the same information |
 | `exact_model_name`, `version` | The publisher's own exact name string and version, verbatim — distinct from BRUTE's own `display_name` |
 | `context_length` | The single largest context length this artifact supports (distinct from `context_sizes`, which lists the sizes BRUTE has actually tuned/evaluated against) |
 | `file_format`, `runtime_provider`, `minimum_runtime_version` | e.g. `"gguf"`, `"llama.cpp"`, a minimum llama.cpp build |
@@ -112,11 +113,24 @@ See `src/catalog/mod.rs` for the full validation list and its tests
 `rejects_oversized_catalog_file`, `rejects_malformed_json`,
 `rejects_duplicate_catalog_ids`, `rejects_zero_parameter_count`).
 
-## The dev catalog
+## The production catalog and the test-fixtures split
 
-`data/catalog/dev-catalog.json` is explicitly labeled curated development/
-test fixture data (its own `_notice` field says so). It contains 7 builds
-chosen to cover every case Stage 1's acceptance criteria call for:
+**`data/catalog/dev-catalog.json` is the real, production catalog file** —
+despite its name, this is exactly what `desktop/src-tauri/src/paths.rs`
+and `src/cli/mod.rs::DEFAULT_CATALOG_PATH` load in the installed app and
+the CLI's default. Every entry in it must be honestly sourced; synthetic
+or placeholder data must never live here (spec: "do not leave fake or
+test models in production recommendations").
+
+Purely synthetic data needed only to exercise edge cases in the Rust test
+suite (e.g. an Unknown-license entry) lives in the separate
+**`data/catalog/test-fixtures.json`**, which no production code path ever
+loads — see that file's own `_notice` and
+`catalog::tests::production_catalog_never_contains_the_test_fixture_entry`,
+which asserts the synthetic `dev-fixture-unknown-license` entry is absent
+from `dev-catalog.json`.
+
+`dev-catalog.json` currently contains 11 builds:
 
 | catalog_id | Why it's here |
 |---|---|
@@ -125,9 +139,15 @@ chosen to cover every case Stage 1's acceptance criteria call for:
 | `qwen2.5-coder-1.5b-instruct-q4_k_m` | Small coding model |
 | `llama-3.1-8b-instruct-q4_k_m` | Medium general model, gated + license-restricted |
 | `llama-3.1-70b-instruct-q4_k_m` | Deliberately oversized negative-test case |
-| `dev-fixture-unknown-license` | Synthetic entry with `Unknown` license/commercial-use |
+| `jais-2-8b-chat-q4_k_m` | **Stage B.1.** Arabic-first, bilingual Arabic/English. Official first-party GGUF from the publisher (inceptionai) — `artifact_verification: artifact_url_verified`, filename/size confirmed against the real HF file listing on 2026-07-18. |
+| `allam-7b-instruct-preview-q4_k_m` | **Stage B.1.** Arabic-first, Saudi national LLM (SDAIA/NCAI). No first-party GGUF exists yet — `artifact_verification: curated_metadata`, `exact_artifact_url: null`, so BRUTE offers no Download button for this entry, only the official source. |
+| `gemma-3-4b-it-qat-q4_0` | **Stage B.1.** Strong multilingual + native vision input. Official first-party GGUF from Google — `artifact_verification: artifact_url_verified`. Gated (requires accepting Gemma Terms of Use); `commercial_use: restricted`, not `allowed`, because the Gemma license attaches a Prohibited Use Policy. |
+| `phi-4-mini-instruct-q4_k_m` | **Stage B.1.** Lightweight (3.8B) with an unusually long 128K context, MIT-licensed. No first-party GGUF — `artifact_verification: curated_metadata`, no Download button. |
 
-Every non-Qwen-0.5B-Q4_K_M entry's `file_size_bytes` is a rounded,
-order-of-magnitude approximation (documented per-entry in
-`metadata_provenance`) — not independently verified, and must be
-re-checked before any production use.
+Every non-Qwen-0.5B-Q4_K_M entry's `file_size_bytes` is either a rounded
+order-of-magnitude approximation or (for the two officially-GGUF-hosted
+Stage B.1 entries) sourced from the publisher's own file listing but not
+independently re-downloaded/hashed — see each entry's own
+`metadata_provenance`/`curator_notes`. None of the four Stage B.1 entries'
+checksums have been independently computed by BRUTE; `checksum_algorithm`/
+`checksum_value` are `null` on all of them.

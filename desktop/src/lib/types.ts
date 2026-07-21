@@ -206,6 +206,7 @@ export interface ModelBuild {
   family_id: string | null;
   model_id: string | null;
   artifact_id: string | null;
+  source_repository: string | null;
   exact_model_name: string | null;
   version: string | null;
   context_length: number | null;

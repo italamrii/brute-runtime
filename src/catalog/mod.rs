@@ -422,9 +422,56 @@ mod tests {
         let oversized = catalog.get("llama-3.1-70b-instruct-q4_k_m").unwrap();
         assert!(oversized.min_recommended_ram_bytes > 32_000_000_000);
 
+        // Stage B.1 multi-family entries: at least one Arabic-first family
+        // with an officially-verified artifact, one Arabic-first family
+        // with no first-party artifact yet (curated_metadata only, no
+        // Download-eligible URL), and one non-Qwen/Llama family entirely.
+        let jais = catalog.get("jais-2-8b-chat-q4_k_m").unwrap();
+        assert!(jais.task_categories.contains(&TaskCategory::ArabicChat));
+        assert_eq!(
+            jais.artifact_verification,
+            schema::VerificationStatus::ArtifactUrlVerified
+        );
+        assert!(jais.exact_artifact_url.is_some());
+
+        let allam = catalog.get("allam-7b-instruct-preview-q4_k_m").unwrap();
+        assert!(allam.task_categories.contains(&TaskCategory::ArabicChat));
+        assert_eq!(
+            allam.artifact_verification,
+            schema::VerificationStatus::CuratedMetadata
+        );
+        assert!(
+            allam.exact_artifact_url.is_none(),
+            "no first-party GGUF exists for ALLaM - must never claim a Download-eligible URL"
+        );
+
+        let gemma = catalog.get("gemma-3-4b-it-qat-q4_0").unwrap();
+        assert_eq!(gemma.family_id.as_deref(), Some("gemma-3"));
+    }
+
+    #[test]
+    fn test_fixtures_file_contains_the_unknown_license_case() {
+        // Synthetic/test-only catalog data lives in a file production code
+        // never loads (see desktop/src-tauri/src/paths.rs and
+        // src/cli/mod.rs::DEFAULT_CATALOG_PATH, both of which point at
+        // dev-catalog.json, never this file) - the fake entry must never
+        // appear in what a real user's Discover Models page shows.
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("data/catalog/test-fixtures.json");
+        let catalog = load_catalog(&path).expect("test-fixtures.json must be valid");
+
         let unknown_license = catalog.get("dev-fixture-unknown-license").unwrap();
         assert_eq!(unknown_license.license, License::Unknown);
         assert_eq!(unknown_license.commercial_use, CommercialUse::Unknown);
+    }
+
+    #[test]
+    fn production_catalog_never_contains_the_test_fixture_entry() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("data/catalog/dev-catalog.json");
+        let catalog = load_catalog(&path).expect("dev-catalog.json must be valid");
+        assert!(
+            catalog.get("dev-fixture-unknown-license").is_none(),
+            "the synthetic test fixture must never ship in the file production code actually loads"
+        );
     }
 
     #[test]

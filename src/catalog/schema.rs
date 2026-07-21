@@ -183,6 +183,11 @@ pub struct ModelBuild {
     /// unset, `catalog_id` already serves this purpose.
     #[serde(default)]
     pub artifact_id: Option<String>,
+    /// Explicit alias for `official_repository_id`, present for entries
+    /// curated under Stage B.1's exact field-name list. When unset,
+    /// `official_repository_id` already carries the same information.
+    #[serde(default)]
+    pub source_repository: Option<String>,
     /// The publisher's own exact model name string, verbatim, distinct
     /// from BRUTE's `display_name`.
     #[serde(default)]
