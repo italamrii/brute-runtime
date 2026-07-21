@@ -462,8 +462,11 @@ describe("Discover page — recommendation-engine-v2 integration (Stage B.6)", (
     fireEvent.click(compareCheckboxes[1]);
     fireEvent.click(await screen.findByText(/Compare \(2\)/));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("Model Alpha")).toBeInTheDocument();
-    expect(within(dialog).getByText("Model Beta")).toBeInTheDocument();
+    // Appears twice by design (Stage B.9): once as the table's column
+    // header, once again in the plain-language summary below it.
+    expect(within(dialog).getAllByText("Model Alpha").length).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText("Model Beta").length).toBeGreaterThan(0);
+    expect(within(dialog.querySelector("table") as HTMLElement).getByText("Model Alpha")).toBeInTheDocument();
   });
 
   it("comparison selection is capped at 4 builds", async () => {
@@ -477,6 +480,59 @@ describe("Discover page — recommendation-engine-v2 integration (Stage B.6)", (
     expect(screen.getByText(/Compare \(4\)/)).toBeInTheDocument();
     expect(compareCheckboxes[4]).not.toBeChecked();
     expect(compareCheckboxes[4]).toBeDisabled();
+  });
+
+  it("the plain-language compare summary honestly names which model leads in which real dimension", async () => {
+    const fast = build({ catalog_id: "fast-1", display_name: "Fast Model", file_size_bytes: 9_000_000_000 });
+    const small = build({ catalog_id: "small-1", display_name: "Small Model", file_size_bytes: 1_000_000_000 });
+    vi.mocked(recommendV2).mockResolvedValue(
+      recommendationSet([
+        entry(fast, { component_scores: { device_fit: 0.5, arabic: 0, task_fit: 0.5, speed: 0.9, quality: 0.5, trust: 0.5, license_fit: 0.5 } }),
+        entry(small, { component_scores: { device_fit: 0.5, arabic: 0, task_fit: 0.5, speed: 0.2, quality: 0.5, trust: 0.5, license_fit: 0.5 } }),
+      ]),
+    );
+    vi.mocked(listLibrary).mockResolvedValue([]);
+    renderDiscover();
+    await screen.findByText("Fast Model");
+    const compareCheckboxes = screen.getAllByLabelText("Compare");
+    fireEvent.click(compareCheckboxes[0]);
+    fireEvent.click(compareCheckboxes[1]);
+    fireEvent.click(await screen.findByText(/Compare \(2\)/));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/fastest/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/smallest download/i)).toBeInTheDocument();
+  });
+
+  it("shows an honest 'no standout dimension' note when two compared models tie on every dimension", async () => {
+    const identicalScores = { device_fit: 0.5, arabic: 0, task_fit: 0.5, speed: 0.5, quality: 0.5, trust: 0.5, license_fit: 0.5 };
+    const twinA = build({ catalog_id: "twin-a", display_name: "Twin A" });
+    const twinB = build({ catalog_id: "twin-b", display_name: "Twin B" });
+    vi.mocked(recommendV2).mockResolvedValue(
+      recommendationSet([entry(twinA, { component_scores: identicalScores }), entry(twinB, { component_scores: identicalScores })]),
+    );
+    vi.mocked(listLibrary).mockResolvedValue([]);
+    renderDiscover();
+    await screen.findByText("Twin A");
+    const compareCheckboxes = screen.getAllByLabelText("Compare");
+    fireEvent.click(compareCheckboxes[0]);
+    fireEvent.click(compareCheckboxes[1]);
+    fireEvent.click(await screen.findByText(/Compare \(2\)/));
+    const dialog = await screen.findByRole("dialog");
+    // Both tie on every dimension, so both should be credited as
+    // leaders (never an arbitrary tie-break to name a single "winner").
+    expect(within(dialog).getAllByText(/fastest/i).length).toBe(2);
+  });
+
+  it("does not show a plain-language summary section for a single selected model", async () => {
+    const b = build();
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(b)]));
+    vi.mocked(listLibrary).mockResolvedValue([]);
+    renderDiscover();
+    await screen.findByText("Test Model 7B");
+    fireEvent.click(screen.getByLabelText("Compare"));
+    fireEvent.click(await screen.findByText(/Compare \(1\)/));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).queryByText("Plain-language summary")).not.toBeInTheDocument();
   });
 
   it("shows no Download button when the build has no verified exact artifact URL", async () => {

@@ -58,14 +58,13 @@ tagged `unsupported`, with the reason shown).
   button ahead of the real progress/checksum/cancel wiring would have
   either done nothing or bypassed the verification this project's
   privacy/security model requires.
-- **Comparison without plain-language summaries.** Selecting up to 4
-  models (a checkbox per card, capped client-side) opens a raw side-by-
-  side table (family, Arabic/coding/reasoning/document capability,
-  parameters, quantization, size, RAM/VRAM, speed, context length,
-  license, trust, device fit) - all real fields, no generated prose.
-  Plain-language comparison summaries ("Model A is faster and lighter
-  than Model B because...") are Phase B Step 9's own increment, built
-  on top of this selection/table mechanism rather than duplicating it.
+- **Comparison, in two layers.** Selecting up to 4 models (a checkbox
+  per card, capped client-side) opens a raw side-by-side table (family,
+  Arabic/coding/reasoning/document capability, parameters,
+  quantization, size, RAM/VRAM, speed, context length, license, trust,
+  device fit) - all real fields, no generated prose. **UPDATED (Stage
+  B.9):** a plain-language summary now sits below that table - see
+  `docs/model-comparison.md`.
 
 ## Tests
 

@@ -267,6 +267,44 @@ const COMPARE_FIELDS: {
   },
 ];
 
+/** A per-model, plain-language "what does this one lead in" summary
+ * (Stage B.9) - deliberately built as N independent per-model summaries
+ * rather than pairwise sentences ("A is faster than B"), so it scales
+ * to the full 4-model compare limit without combinatorial explosion.
+ * Every label is a real tie for the best (or, for size/RAM, smallest)
+ * value among the *compared* set only - never a fabricated claim, and
+ * ties are never broken arbitrarily to name a single "winner" that
+ * isn't actually ahead. */
+function buildCompareSummaries(entries: BuildRecommendationV2[]): Map<string, string[]> {
+  const labelsByCatalogId = new Map<string, string[]>();
+  for (const e of entries) labelsByCatalogId.set(e.build.catalog_id, []);
+  if (entries.length < 2) return labelsByCatalogId;
+
+  function assignLeaders(
+    value: (e: BuildRecommendationV2) => number,
+    lowerIsBetter: boolean,
+    labelKey: string,
+    eligible: (e: BuildRecommendationV2) => boolean = () => true,
+  ) {
+    const pool = entries.filter(eligible);
+    if (pool.length === 0) return;
+    const extreme = lowerIsBetter ? Math.min(...pool.map(value)) : Math.max(...pool.map(value));
+    for (const e of pool) {
+      if (value(e) === extreme) labelsByCatalogId.get(e.build.catalog_id)?.push(labelKey);
+    }
+  }
+
+  assignLeaders((e) => e.component_scores.speed, false, "discover_compare_label_fastest");
+  assignLeaders((e) => e.component_scores.quality, false, "discover_compare_label_quality");
+  assignLeaders((e) => e.component_scores.arabic, false, "discover_compare_label_arabic", (e) => e.component_scores.arabic > 0);
+  assignLeaders((e) => e.component_scores.device_fit, false, "discover_compare_label_device_fit");
+  assignLeaders((e) => e.component_scores.trust, false, "discover_compare_label_trust");
+  assignLeaders((e) => e.build.file_size_bytes, true, "discover_compare_label_smallest");
+  assignLeaders((e) => e.build.min_recommended_ram_bytes, true, "discover_compare_label_least_ram");
+
+  return labelsByCatalogId;
+}
+
 export function Discover() {
   const { t } = useI18n();
   const [entries, setEntries] = useState<BuildRecommendationV2[] | null>(null);
@@ -428,6 +466,7 @@ export function Discover() {
 
   const selectedEntry = (entries ?? []).find((e) => e.build.catalog_id === selected) ?? null;
   const compareEntries = compareIds.map((id) => (entries ?? []).find((e) => e.build.catalog_id === id)).filter((e): e is BuildRecommendationV2 => !!e);
+  const compareSummaries = buildCompareSummaries(compareEntries);
 
   function toggleCompare(catalogId: string, checked: boolean) {
     setCompareIds((prev) => {
@@ -1073,6 +1112,29 @@ export function Discover() {
                   </table>
                 </div>
               )}
+
+              {compareEntries.length >= 2 && (
+                <div style={{ marginTop: 16 }}>
+                  <h3 style={{ fontSize: 13, marginBottom: 8 }}>{t("discover_compare_summary_title")}</h3>
+                  {compareEntries.map((e) => {
+                    const labels = compareSummaries.get(e.build.catalog_id) ?? [];
+                    return (
+                      <p key={e.build.catalog_id} className="text-secondary" style={{ fontSize: 12, marginBottom: 6 }}>
+                        <strong>{e.build.display_name}</strong>
+                        {labels.length > 0 ? (
+                          <>
+                            {" — "}
+                            {t("discover_compare_leads_in")}: {labels.map((l) => t(l)).join(", ")}.
+                          </>
+                        ) : (
+                          <> — {t("discover_compare_summary_none")}</>
+                        )}
+                      </p>
+                    );
+                  })}
+                </div>
+              )}
+
               <div className="modal-actions">
                 <button type="button" className="btn" onClick={() => setCompareIds([])}>
                   {t("discover_compare_clear")}
