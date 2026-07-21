@@ -53,14 +53,11 @@ tagged `unsupported`, with the reason shown).
 
 ## Two explicit scope decisions
 
-- **No "Download" button.** When `exact_artifact_url` is set, the
-  dialog shows an honest, non-interactive note ("A verified direct
-  download is available for this file") - not a button. Wiring an
-  actual download (progress, checksum verification, atomic rename,
-  cancel/retry, disk-space check) is Phase B Step 7, not this stage;
-  shipping a button ahead of that would either do nothing or bypass the
-  verification this project's privacy/security model requires. See
-  `docs/known-limitations.md`.
+- **No "Download" button in this stage.** Deferred to Phase B Step 7
+  and delivered there - see `docs/safe-download-flow.md`. Shipping a
+  button ahead of the real progress/checksum/cancel wiring would have
+  either done nothing or bypassed the verification this project's
+  privacy/security model requires.
 - **Comparison without plain-language summaries.** Selecting up to 4
   models (a checkbox per card, capped client-side) opens a raw side-by-
   side table (family, Arabic/coding/reasoning/document capability,

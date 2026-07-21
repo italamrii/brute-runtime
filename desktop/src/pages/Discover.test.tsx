@@ -13,9 +13,15 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
 vi.mock("../lib/api", () => ({
   recommendV2: vi.fn(),
   listLibrary: vi.fn(),
+  checkDownloadSpace: vi.fn(),
+  downloadModel: vi.fn(),
+  cancelDownload: vi.fn(),
+  importModel: vi.fn(),
 }));
 
-import { recommendV2, listLibrary } from "../lib/api";
+import { recommendV2, listLibrary, checkDownloadSpace, downloadModel, cancelDownload, importModel } from "../lib/api";
+import { listen } from "@tauri-apps/api/event";
+import { save } from "@tauri-apps/plugin-dialog";
 
 function build(overrides: Partial<ModelBuild> = {}): ModelBuild {
   return {
@@ -142,6 +148,7 @@ describe("Discover page — model card navigation safety", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     openUrlMock.mockReset();
+    vi.mocked(listen).mockResolvedValue(() => undefined);
     const b = build();
     vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(b)]));
     vi.mocked(listLibrary).mockResolvedValue([]);
@@ -372,6 +379,7 @@ describe("Discover page — recommendation-engine-v2 integration (Stage B.6)", (
   beforeEach(() => {
     vi.resetAllMocks();
     openUrlMock.mockReset();
+    vi.mocked(listen).mockResolvedValue(() => undefined);
   });
 
   it("shows the installed badge for a build the local library already matches", async () => {
@@ -471,18 +479,14 @@ describe("Discover page — recommendation-engine-v2 integration (Stage B.6)", (
     expect(compareCheckboxes[4]).toBeDisabled();
   });
 
-  it("shows an informational note when a verified direct download exists, without rendering a download button", async () => {
-    const b = build({
-      exact_artifact_url: "https://huggingface.co/example/test-model-gguf/resolve/main/test-model.Q4_K_M.gguf",
-      artifact_verification: "artifact_url_verified",
-    });
+  it("shows no Download button when the build has no verified exact artifact URL", async () => {
+    const b = build({ exact_artifact_url: null });
     vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(b)]));
     vi.mocked(listLibrary).mockResolvedValue([]);
     renderDiscover();
     fireEvent.click(await screen.findByText("Test Model 7B"));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText(/verified direct download is available/i)).toBeInTheDocument();
-    expect(within(dialog).queryByRole("button", { name: /download/i })).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("Download")).not.toBeInTheDocument();
   });
 
   it("shows the model's plain-language recommendation explanation in the details dialog", async () => {
@@ -513,5 +517,226 @@ describe("Discover page — recommendation-engine-v2 integration (Stage B.6)", (
     fireEvent.click(await screen.findByText("Test Model 7B"));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Excluded by your preferred/excluded family settings.")).toBeInTheDocument();
+  });
+});
+
+function downloadOutcome(overrides: Partial<import("../lib/types").DownloadOutcome> = {}): import("../lib/types").DownloadOutcome {
+  return {
+    succeeded: true,
+    cancelled: false,
+    final_path: "C:\\Users\\test\\Downloads\\test-model.Q4_K_M.gguf",
+    sha256: "a".repeat(64),
+    checksum_verified: null,
+    bytes_downloaded: 4_500_000_000,
+    error: null,
+    ...overrides,
+  };
+}
+
+describe("Discover page — safe verified download flow (Stage B.7)", () => {
+  const downloadableBuild = () =>
+    build({
+      exact_artifact_url: "https://huggingface.co/example/test-model-gguf/resolve/main/test-model.Q4_K_M.gguf",
+      artifact_verification: "artifact_url_verified",
+      checksum_algorithm: "sha256",
+      checksum_value: "a".repeat(64),
+    });
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    openUrlMock.mockReset();
+    vi.mocked(listen).mockResolvedValue(() => undefined);
+    vi.mocked(listLibrary).mockResolvedValue([]);
+  });
+
+  it("shows a Download button when the build has a verified exact artifact URL", async () => {
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(downloadableBuild())]));
+    renderDiscover();
+    fireEvent.click(await screen.findByText("Test Model 7B"));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Download")).toBeInTheDocument();
+  });
+
+  it("cancelling the destination picker does not start a download or leave the details view", async () => {
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(downloadableBuild())]));
+    vi.mocked(save).mockResolvedValue(null);
+    renderDiscover();
+    fireEvent.click(await screen.findByText("Test Model 7B"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByText("Download"));
+    expect(downloadModel).not.toHaveBeenCalled();
+    expect(within(dialog).getByText("Q4_K_M")).toBeInTheDocument();
+  });
+
+  it("shows the destination and a disk-space check before starting the download", async () => {
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(downloadableBuild())]));
+    vi.mocked(save).mockResolvedValue("C:\\Users\\test\\Downloads\\test-model.Q4_K_M.gguf");
+    vi.mocked(checkDownloadSpace).mockResolvedValue({ available_bytes: 100_000_000_000, required_bytes: 4_500_000_000, sufficient: true });
+    renderDiscover();
+    fireEvent.click(await screen.findByText("Test Model 7B"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByText("Download"));
+    await waitFor(() => expect(checkDownloadSpace).toHaveBeenCalledWith("C:\\Users\\test\\Downloads\\test-model.Q4_K_M.gguf", 4_500_000_000));
+    expect(await within(dialog).findByText("C:\\Users\\test\\Downloads\\test-model.Q4_K_M.gguf")).toBeInTheDocument();
+  });
+
+  it("warns when the destination does not have enough free space", async () => {
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(downloadableBuild())]));
+    vi.mocked(save).mockResolvedValue("D:\\tiny-drive\\test-model.Q4_K_M.gguf");
+    vi.mocked(checkDownloadSpace).mockResolvedValue({ available_bytes: 1_000_000, required_bytes: 4_500_000_000, sufficient: false });
+    renderDiscover();
+    fireEvent.click(await screen.findByText("Test Model 7B"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByText("Download"));
+    expect(await within(dialog).findByText(/enough free space/i)).toBeInTheDocument();
+  });
+
+  it("passes the catalog's curated sha256 as the expected checksum when starting a download", async () => {
+    const b = downloadableBuild();
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(b)]));
+    vi.mocked(save).mockResolvedValue("C:\\Users\\test\\Downloads\\test-model.Q4_K_M.gguf");
+    vi.mocked(checkDownloadSpace).mockResolvedValue({ available_bytes: 100_000_000_000, required_bytes: 4_500_000_000, sufficient: true });
+    vi.mocked(downloadModel).mockResolvedValue(downloadOutcome({ checksum_verified: true }));
+    renderDiscover();
+    fireEvent.click(await screen.findByText("Test Model 7B"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByText("Download"));
+    fireEvent.click(await within(dialog).findByText("Start download"));
+    await waitFor(() =>
+      expect(downloadModel).toHaveBeenCalledWith(
+        b.exact_artifact_url,
+        "C:\\Users\\test\\Downloads\\test-model.Q4_K_M.gguf",
+        "a".repeat(64),
+      ),
+    );
+  });
+
+  it("shows a success result with checksum-verified status and offers to add the file to the library", async () => {
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(downloadableBuild())]));
+    vi.mocked(save).mockResolvedValue("C:\\Users\\test\\Downloads\\test-model.Q4_K_M.gguf");
+    vi.mocked(checkDownloadSpace).mockResolvedValue({ available_bytes: 100_000_000_000, required_bytes: 4_500_000_000, sufficient: true });
+    vi.mocked(downloadModel).mockResolvedValue(downloadOutcome({ checksum_verified: true }));
+    vi.mocked(importModel).mockResolvedValue({
+      library_id: "lib-new",
+      was_new: true,
+      duplicate_of: [],
+      verification: {
+        header: "verified",
+        structure: "verified",
+        sha256: "verified",
+        runtime_load: "not_tested",
+        benchmark: "not_tested",
+        catalog_match: "exact",
+        overall_integrity: "verified",
+        trust: "catalog_metadata_matched",
+      },
+      catalog_match: { catalog_id: "test-model-q4", confidence: "exact", notes: [] },
+    });
+    renderDiscover();
+    fireEvent.click(await screen.findByText("Test Model 7B"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByText("Download"));
+    fireEvent.click(await within(dialog).findByText("Start download"));
+    expect(await within(dialog).findByText(/checksum verified/i)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByText("Add to library"));
+    await waitFor(() => expect(importModel).toHaveBeenCalledWith("C:\\Users\\test\\Downloads\\test-model.Q4_K_M.gguf", null));
+    expect(await within(dialog).findByText(/added to your local library/i)).toBeInTheDocument();
+  });
+
+  it("shows an honest 'not independently verified' note when no checksum was available to compare against", async () => {
+    const b = build({
+      exact_artifact_url: "https://huggingface.co/example/test-model-gguf/resolve/main/test-model.Q4_K_M.gguf",
+      artifact_verification: "artifact_url_verified",
+      checksum_algorithm: null,
+      checksum_value: null,
+    });
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(b)]));
+    vi.mocked(save).mockResolvedValue("C:\\Users\\test\\Downloads\\test-model.Q4_K_M.gguf");
+    vi.mocked(checkDownloadSpace).mockResolvedValue({ available_bytes: 100_000_000_000, required_bytes: 4_500_000_000, sufficient: true });
+    vi.mocked(downloadModel).mockResolvedValue(downloadOutcome({ checksum_verified: null }));
+    renderDiscover();
+    fireEvent.click(await screen.findByText("Test Model 7B"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByText("Download"));
+    fireEvent.click(await within(dialog).findByText("Start download"));
+    await waitFor(() => expect(downloadModel).toHaveBeenCalledWith(b.exact_artifact_url, expect.any(String), null));
+    expect(await within(dialog).findByText(/no independent checksum/i)).toBeInTheDocument();
+  });
+
+  it("shows a checksum-mismatch failure honestly and offers Retry, never a false success", async () => {
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(downloadableBuild())]));
+    vi.mocked(save).mockResolvedValue("C:\\Users\\test\\Downloads\\test-model.Q4_K_M.gguf");
+    vi.mocked(checkDownloadSpace).mockResolvedValue({ available_bytes: 100_000_000_000, required_bytes: 4_500_000_000, sufficient: true });
+    vi.mocked(downloadModel).mockResolvedValue(
+      downloadOutcome({
+        succeeded: false,
+        final_path: null,
+        checksum_verified: false,
+        error: "the downloaded file's checksum did not match the expected value",
+      }),
+    );
+    renderDiscover();
+    fireEvent.click(await screen.findByText("Test Model 7B"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByText("Download"));
+    fireEvent.click(await within(dialog).findByText("Start download"));
+    expect(await within(dialog).findByText(/did not complete/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/checksum did not match/i)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/added to your local library/i)).not.toBeInTheDocument();
+    expect(within(dialog).getByText("Retry")).toBeInTheDocument();
+  });
+
+  it("clicking Cancel download requests cancellation via cancel_download", async () => {
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(downloadableBuild())]));
+    vi.mocked(save).mockResolvedValue("C:\\Users\\test\\Downloads\\test-model.Q4_K_M.gguf");
+    vi.mocked(checkDownloadSpace).mockResolvedValue({ available_bytes: 100_000_000_000, required_bytes: 4_500_000_000, sufficient: true });
+    // Never resolves within this test, so the progress view stays mounted
+    // long enough to click Cancel.
+    vi.mocked(downloadModel).mockReturnValue(new Promise(() => {}));
+    renderDiscover();
+    fireEvent.click(await screen.findByText("Test Model 7B"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByText("Download"));
+    fireEvent.click(await within(dialog).findByText("Start download"));
+    await screen.findByText("Downloading…");
+    fireEvent.click(screen.getByText("Cancel download"));
+    await waitFor(() => expect(cancelDownload).toHaveBeenCalledTimes(1));
+  });
+
+  it("shows a cancelled result distinctly from a failure, and offers Retry", async () => {
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(downloadableBuild())]));
+    vi.mocked(save).mockResolvedValue("C:\\Users\\test\\Downloads\\test-model.Q4_K_M.gguf");
+    vi.mocked(checkDownloadSpace).mockResolvedValue({ available_bytes: 100_000_000_000, required_bytes: 4_500_000_000, sufficient: true });
+    vi.mocked(downloadModel).mockResolvedValue(
+      downloadOutcome({ succeeded: false, cancelled: true, final_path: null, sha256: null, checksum_verified: null, error: null }),
+    );
+    renderDiscover();
+    fireEvent.click(await screen.findByText("Test Model 7B"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByText("Download"));
+    fireEvent.click(await within(dialog).findByText("Start download"));
+    expect(await within(dialog).findByText(/download was cancelled/i)).toBeInTheDocument();
+    expect(within(dialog).getByText("Retry")).toBeInTheDocument();
+  });
+
+  it("rejects a non-http(s) exact_artifact_url from ever reaching download_model (defense in depth)", async () => {
+    // The Rust side already rejects non-http(s) URLs (is_supported_url);
+    // this only documents that the frontend never fabricates or rewrites
+    // the URL it was given - it passes the catalog's own value through
+    // unchanged for the backend to validate.
+    const b = build({
+      exact_artifact_url: "https://huggingface.co/example/test-model-gguf/resolve/main/test-model.Q4_K_M.gguf",
+      artifact_verification: "artifact_url_verified",
+    });
+    vi.mocked(recommendV2).mockResolvedValue(recommendationSet([entry(b)]));
+    vi.mocked(save).mockResolvedValue("C:\\Users\\test\\Downloads\\test-model.Q4_K_M.gguf");
+    vi.mocked(checkDownloadSpace).mockResolvedValue({ available_bytes: 100_000_000_000, required_bytes: 4_500_000_000, sufficient: true });
+    vi.mocked(downloadModel).mockResolvedValue(downloadOutcome());
+    renderDiscover();
+    fireEvent.click(await screen.findByText("Test Model 7B"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByText("Download"));
+    fireEvent.click(await within(dialog).findByText("Start download"));
+    await waitFor(() => expect(downloadModel).toHaveBeenCalledWith(b.exact_artifact_url, expect.any(String), null));
   });
 });

@@ -15,7 +15,9 @@ import type {
   CommonLocation,
   Conversation,
   ConversationSummary,
+  DiskSpaceCheck,
   DiscoveryResult,
+  DownloadOutcome,
   DuplicateGroup,
   ExplainFitDto,
   HardwareCapabilityProfile,
@@ -176,3 +178,10 @@ export const clearAllConversations = () => call<number>("conversations_clear_all
 export const getPreferences = () => call<Preferences>("preferences_get");
 export const savePreferences = (prefs: Preferences) => call<void>("preferences_save", { prefs });
 export const resetPreferences = () => call<Preferences>("preferences_reset");
+
+// Safe verified download flow (Stage B.7) ----------------------------------
+export const checkDownloadSpace = (destination_path: string, required_bytes: number) =>
+  call<DiskSpaceCheck>("check_download_space", { destination_path, required_bytes });
+export const downloadModel = (url: string, destination_path: string, expected_sha256: string | null) =>
+  call<DownloadOutcome>("download_model", { url, destination_path, expected_sha256 });
+export const cancelDownload = () => call<void>("cancel_download");

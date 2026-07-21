@@ -1,12 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { save } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "../i18n/I18nContext";
-import { listLibrary, recommendV2 } from "../lib/api";
+import { cancelDownload, checkDownloadSpace, downloadModel, importModel, listLibrary, recommendV2 } from "../lib/api";
 import type {
   Backend,
   BuildRecommendationV2,
   CapabilityLevel,
   ConfidenceLevel,
+  DiskSpaceCheck,
+  DownloadOutcome,
+  DownloadProgressEvent,
   FitState,
   ModelBuild,
   RecommendationCategory,
@@ -21,6 +26,19 @@ import { TechnicalValue } from "../components/TechnicalValue";
 
 const GB = 1_000_000_000;
 const COMPARE_LIMIT = 4;
+
+type ModalView = "details" | "confirm-open" | "rejected" | "download-confirm" | "download-progress" | "download-result";
+
+function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "—";
+  const s = Math.round(seconds);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  if (m < 60) return `${m}m ${rem}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
 
 function fitStatusTone(state: FitState | null | undefined): "good" | "warn" | "bad" | "unknown" {
   switch (state) {
@@ -257,13 +275,30 @@ export function Discover() {
   const [filters, setFilters] = useState<FiltersState>(defaultFilters);
   const [sort, setSort] = useState<SortOption>("best_match");
   const [selected, setSelected] = useState<string | null>(null);
-  const [modalView, setModalView] = useState<"details" | "confirm-open" | "rejected">("details");
+  const [modalView, setModalView] = useState<ModalView>("details");
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [showCompare, setShowCompare] = useState(false);
+
+  const [downloadDestination, setDownloadDestination] = useState<string | null>(null);
+  const [spaceCheck, setSpaceCheck] = useState<DiskSpaceCheck | null>(null);
+  const [spaceCheckError, setSpaceCheckError] = useState<string | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<DownloadProgressEvent | null>(null);
+  const [downloadResult, setDownloadResult] = useState<DownloadOutcome | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [addedToLibrary, setAddedToLibrary] = useState(false);
+  const [addToLibraryError, setAddToLibraryError] = useState<string | null>(null);
+  const downloadStartedAtRef = useRef<number | null>(null);
 
   function closeModal() {
     setSelected(null);
     setModalView("details");
+    setDownloadDestination(null);
+    setSpaceCheck(null);
+    setSpaceCheckError(null);
+    setDownloadProgress(null);
+    setDownloadResult(null);
+    setAddedToLibrary(false);
+    setAddToLibraryError(null);
   }
 
   function openSelected(catalogId: string) {
@@ -285,6 +320,65 @@ export function Discover() {
       })
       .catch((e) => setError(String(e)));
   }, []);
+
+  useEffect(() => {
+    const unlisten = listen<DownloadProgressEvent>("download-progress", (event) => setDownloadProgress(event.payload));
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, []);
+
+  async function startDownloadFlow(build: ModelBuild) {
+    const target = await save({ defaultPath: build.filename });
+    if (!target) return;
+    setDownloadDestination(target);
+    setSpaceCheck(null);
+    setSpaceCheckError(null);
+    setModalView("download-confirm");
+    try {
+      const check = await checkDownloadSpace(target, build.file_size_bytes);
+      setSpaceCheck(check);
+    } catch (e) {
+      setSpaceCheckError(String(e));
+    }
+  }
+
+  async function beginDownload(build: ModelBuild) {
+    if (!downloadDestination || !build.exact_artifact_url) return;
+    setModalView("download-progress");
+    setDownloadProgress({ bytes_downloaded: 0, total_bytes: build.file_size_bytes });
+    downloadStartedAtRef.current = Date.now();
+    setDownloading(true);
+    const expectedSha256 = build.checksum_algorithm === "sha256" ? build.checksum_value : null;
+    try {
+      const outcome = await downloadModel(build.exact_artifact_url, downloadDestination, expectedSha256);
+      setDownloadResult(outcome);
+    } catch (e) {
+      setDownloadResult({
+        succeeded: false,
+        cancelled: false,
+        final_path: null,
+        sha256: null,
+        checksum_verified: null,
+        bytes_downloaded: 0,
+        error: String(e),
+      });
+    } finally {
+      setDownloading(false);
+      setModalView("download-result");
+    }
+  }
+
+  async function addDownloadedFileToLibrary() {
+    if (!downloadResult?.final_path) return;
+    setAddToLibraryError(null);
+    try {
+      await importModel(downloadResult.final_path, null);
+      setAddedToLibrary(true);
+    } catch (e) {
+      setAddToLibraryError(String(e));
+    }
+  }
 
   const families = useMemo(() => {
     if (!entries) return [];
@@ -651,12 +745,6 @@ export function Discover() {
                     ))}
                   </dl>
 
-                  {selectedEntry.build.exact_artifact_url && (
-                    <p className="text-tertiary" style={{ marginTop: 12, fontSize: 11 }}>
-                      {t("discover_download_available_note")}
-                    </p>
-                  )}
-
                   <div style={{ marginTop: 12 }}>
                     <span className={`badge badge-${fitStatusTone(selectedEntry.fit_state)}`}>
                       {t(statusLabelKey(selectedEntry.fit_state))}
@@ -684,8 +772,17 @@ export function Discover() {
                   </p>
 
                   <div className="modal-actions">
+                    {selectedEntry.build.exact_artifact_url && (
+                      <button
+                        className="btn btn-primary"
+                        type="button"
+                        onClick={() => void startDownloadFlow(selectedEntry.build)}
+                      >
+                        {t("discover_download_button")}
+                      </button>
+                    )}
                     <button
-                      className="btn btn-primary"
+                      className="btn"
                       type="button"
                       onClick={() => {
                         const result = checkUrlSafety(selectedEntry.build.official_source_url);
@@ -694,6 +791,184 @@ export function Discover() {
                     >
                       {t("discover_open_source")}
                     </button>
+                    <button className="btn" type="button" onClick={closeModal}>
+                      {t("common_close")}
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {modalView === "download-confirm" && (
+                <>
+                  <div className="kv-row">
+                    <span className="kv-row-label">{t("discover_download_destination")}</span>
+                    <TechnicalValue className="kv-row-value mono" style={{ wordBreak: "break-all" }}>
+                      {downloadDestination ?? "—"}
+                    </TechnicalValue>
+                  </div>
+                  <div className="kv-row">
+                    <span className="kv-row-label">{t("discover_download_required")}</span>
+                    <TechnicalValue className="kv-row-value mono">{formatBytes(selectedEntry.build.file_size_bytes)}</TechnicalValue>
+                  </div>
+                  <div className="kv-row">
+                    <span className="kv-row-label">{t("discover_download_available")}</span>
+                    <TechnicalValue className="kv-row-value mono">
+                      {spaceCheck?.available_bytes != null ? formatBytes(spaceCheck.available_bytes) : t("common_unknown")}
+                    </TechnicalValue>
+                  </div>
+
+                  {spaceCheckError && (
+                    <p className="text-tertiary" style={{ marginTop: 8, fontSize: 11 }}>
+                      {spaceCheckError}
+                    </p>
+                  )}
+                  {!spaceCheckError && spaceCheck?.sufficient === null && (
+                    <p className="text-tertiary" style={{ marginTop: 8, fontSize: 11 }}>
+                      {t("discover_download_space_unknown")}
+                    </p>
+                  )}
+                  {spaceCheck?.sufficient === false && (
+                    <p className="text-tertiary" style={{ marginTop: 8, fontSize: 11, color: "var(--state-bad)" }}>
+                      {t("discover_download_space_insufficient")}
+                    </p>
+                  )}
+
+                  <div className="modal-actions">
+                    <button className="btn btn-primary" type="button" onClick={() => void beginDownload(selectedEntry.build)}>
+                      {t("discover_download_start")}
+                    </button>
+                    <button className="btn" type="button" onClick={() => setModalView("details")}>
+                      {t("common_back")}
+                    </button>
+                    <button className="btn" type="button" onClick={closeModal}>
+                      {t("common_cancel")}
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {modalView === "download-progress" && (
+                <>
+                  <p className="text-secondary" style={{ marginBottom: 12 }}>
+                    {t("discover_download_progress_title")}
+                  </p>
+                  {(() => {
+                    const downloadedBytes = downloadProgress?.bytes_downloaded ?? 0;
+                    const totalBytes = downloadProgress?.total_bytes ?? null;
+                    const percent = totalBytes ? Math.min(100, Math.round((downloadedBytes / totalBytes) * 100)) : null;
+                    const elapsedSeconds = downloadStartedAtRef.current ? (Date.now() - downloadStartedAtRef.current) / 1000 : 0;
+                    const bytesPerSecond = elapsedSeconds > 0 ? downloadedBytes / elapsedSeconds : 0;
+                    const remainingBytes = totalBytes != null ? Math.max(0, totalBytes - downloadedBytes) : null;
+                    const etaSeconds = remainingBytes != null && bytesPerSecond > 0 ? remainingBytes / bytesPerSecond : null;
+                    return (
+                      <>
+                        <div className="meter" style={{ background: "var(--bg-inset)", borderRadius: 4, overflow: "hidden" }}>
+                          <div
+                            style={{
+                              height: 6,
+                              width: percent != null ? `${percent}%` : "35%",
+                              background: "var(--accent-red)",
+                              transition: "width 0.2s ease",
+                            }}
+                          />
+                        </div>
+                        <TechnicalValue as="p" className="text-tertiary" style={{ marginTop: 8, fontSize: 11 }}>
+                          {formatBytes(downloadedBytes)} / {totalBytes != null ? formatBytes(totalBytes) : t("common_unknown")}
+                          {percent != null ? ` (${percent}%)` : ""}
+                        </TechnicalValue>
+                        <div className="kv-row">
+                          <span className="kv-row-label">{t("discover_download_speed")}</span>
+                          <TechnicalValue className="kv-row-value mono">{formatBytes(bytesPerSecond)}/s</TechnicalValue>
+                        </div>
+                        <div className="kv-row">
+                          <span className="kv-row-label">{t("discover_download_eta")}</span>
+                          <TechnicalValue className="kv-row-value mono">
+                            {etaSeconds != null ? formatDuration(etaSeconds) : t("common_unknown")}
+                          </TechnicalValue>
+                        </div>
+                      </>
+                    );
+                  })()}
+
+                  <div className="modal-actions">
+                    <button
+                      className="btn btn-danger"
+                      type="button"
+                      disabled={!downloading}
+                      onClick={() => void cancelDownload()}
+                    >
+                      {t("discover_download_cancel")}
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {modalView === "download-result" && downloadResult && (
+                <>
+                  {downloadResult.succeeded && (
+                    <>
+                      <p className="text-secondary" style={{ marginBottom: 8 }}>
+                        {t("discover_download_success")}
+                      </p>
+                      <TechnicalValue as="p" className="text-tertiary" style={{ marginBottom: 12, wordBreak: "break-all", fontSize: 11 }}>
+                        {downloadResult.final_path}
+                      </TechnicalValue>
+                      <div className="kv-row">
+                        <span className="kv-row-label">{t("discover_field_checksum")}</span>
+                        <TechnicalValue className="kv-row-value mono">{downloadResult.sha256}</TechnicalValue>
+                      </div>
+                      <p className="text-tertiary" style={{ marginTop: 8, fontSize: 11 }}>
+                        {downloadResult.checksum_verified === true
+                          ? t("discover_download_checksum_verified")
+                          : t("discover_download_checksum_unverified")}
+                      </p>
+                      {addedToLibrary && (
+                        <p className="text-tertiary" style={{ marginTop: 8, fontSize: 11 }}>
+                          {t("discover_download_added_to_library")}
+                        </p>
+                      )}
+                      {addToLibraryError && (
+                        <p className="text-tertiary" style={{ marginTop: 8, fontSize: 11 }}>
+                          {addToLibraryError}
+                        </p>
+                      )}
+                    </>
+                  )}
+
+                  {!downloadResult.succeeded && downloadResult.cancelled && (
+                    <p className="text-secondary" style={{ marginBottom: 12 }}>
+                      {t("discover_download_cancelled")}
+                    </p>
+                  )}
+
+                  {!downloadResult.succeeded && !downloadResult.cancelled && (
+                    <>
+                      <p className="text-secondary" style={{ marginBottom: 8 }}>
+                        {t("discover_download_failed")}
+                      </p>
+                      {downloadResult.error && (
+                        <p className="text-tertiary" style={{ marginBottom: 12, fontSize: 11 }}>
+                          {downloadResult.error}
+                        </p>
+                      )}
+                    </>
+                  )}
+
+                  <div className="modal-actions">
+                    {downloadResult.succeeded && !addedToLibrary && (
+                      <button className="btn btn-primary" type="button" onClick={() => void addDownloadedFileToLibrary()}>
+                        {t("discover_download_add_to_library")}
+                      </button>
+                    )}
+                    {!downloadResult.succeeded && (
+                      <button
+                        className="btn btn-primary"
+                        type="button"
+                        onClick={() => void startDownloadFlow(selectedEntry.build)}
+                      >
+                        {t("discover_download_retry")}
+                      </button>
+                    )}
                     <button className="btn" type="button" onClick={closeModal}>
                       {t("common_close")}
                     </button>

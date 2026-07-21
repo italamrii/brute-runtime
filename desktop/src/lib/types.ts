@@ -868,3 +868,30 @@ export interface Preferences {
   max_vram_bytes: number | null;
   updated_at_rfc3339: string;
 }
+
+// --- Safe verified download flow (Stage B.7) ---------------------------
+// See docs/safe-download-flow.md. `download_model` is the only network
+// call in the entire codebase, and only ever runs after an explicit
+// user click on a Download button that itself only appears once
+// exact_artifact_url has been verified (Discover.tsx).
+
+export interface DownloadOutcome {
+  succeeded: boolean;
+  cancelled: boolean;
+  final_path: string | null;
+  sha256: string | null;
+  checksum_verified: boolean | null;
+  bytes_downloaded: number;
+  error: string | null;
+}
+
+export interface DownloadProgressEvent {
+  bytes_downloaded: number;
+  total_bytes: number | null;
+}
+
+export interface DiskSpaceCheck {
+  available_bytes: number | null;
+  required_bytes: number;
+  sufficient: boolean | null;
+}

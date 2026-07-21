@@ -83,6 +83,7 @@ pub fn run() {
             commands::discovery::scan_common_model_locations,
             commands::download::download_model,
             commands::download::cancel_download,
+            commands::download::check_download_space,
             commands::conversations::conversations_list,
             commands::conversations::conversations_show,
             commands::conversations::conversations_create,

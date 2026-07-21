@@ -368,29 +368,21 @@ is a deliberate, documented scope cut.
 
 ## Navigation-safety hardening and branding pass
 
-- **The Discover Models catalog has no in-app "Download" action yet, by
-  design.** `ModelBuild` (`src/catalog/schema.rs`) carries
-  `official_source_url` (the model's official page/repository, meant
-  for a human to review license and pick the right file) separately
-  from `exact_artifact_url` (Stage B.1+, only set once a specific
-  `.gguf` file's direct link has actually been verified to resolve -
-  see `VerificationStatus` in `docs/model-catalog-schema.md`). The
-  already-implemented `download_model`/`cancel_download` Tauri commands
-  (`desktop/src-tauri/src/commands/download.rs`) correctly stream-
-  download-and-verify *any* http(s) URL a caller gives them, but no
-  page calls them yet. **UPDATED (Stage B.6):** the Discover Models
-  details dialog now shows an honest, non-interactive note - "A
-  verified direct download is available for this file" - whenever
-  `exact_artifact_url` is set (true today for the Jais, Gemma, and Phi-
-  4-mini entries), but deliberately renders no clickable "Download"
-  button, since wiring one up correctly (progress, checksum
-  verification, atomic rename, cancel/retry, disk-space check) is its
-  own dedicated stage (Phase B Step 7 - safe verified download flow),
-  not yet built. Until then, Discover's modal offers exactly one
-  external action - "Open official source," which opens the real page
-  in the system browser - and both the Tauri command layer and the
-  Rust unit tests for the download flow remain in place and correct
-  for when Step 7 wires them up.
+- **The Discover Models catalog's "Download" action.** `ModelBuild`
+  (`src/catalog/schema.rs`) carries `official_source_url` (the model's
+  official page/repository, meant for a human to review license and
+  pick the right file) separately from `exact_artifact_url` (Stage
+  B.1+, only set once a specific `.gguf` file's direct link has
+  actually been verified to resolve - see `VerificationStatus` in
+  `docs/model-catalog-schema.md`). **UPDATED (Stage B.7):** a real
+  "Download" button now appears in the Discover Models details dialog,
+  but *only* when `exact_artifact_url` is set (true today for the
+  Jais, Gemma, and Phi-4-mini entries) - see
+  `docs/safe-download-flow.md`. Every other catalog entry still offers
+  only "Open official source," which opens the real page in the system
+  browser, exactly as before. Pause/resume (HTTP range-request
+  resumption) is still not implemented - a cancelled download must be
+  restarted from zero.
 - **A real Cargo build-script staleness bug was caught during installed-
   build verification of this pass.** `tauri_build::build()` (called from
   `desktop/src-tauri/build.rs`) only emits `cargo:rerun-if-changed` for
