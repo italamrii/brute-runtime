@@ -305,8 +305,40 @@ fn query_peak_working_set(_child: &Child) -> Option<u64> {
 mod tests {
     use super::*;
 
-    fn cmd_exe() -> std::path::PathBuf {
-        Path::new(r"C:\Windows\System32\cmd.exe").to_path_buf()
+    // A shell that exists on the host OS, so these process-runner tests
+    // are real on every platform we ship (previously they hardcoded
+    // `cmd.exe` and only ran on Windows - see docs/cross-platform.md).
+    fn shell() -> std::path::PathBuf {
+        if cfg!(windows) {
+            Path::new(r"C:\Windows\System32\cmd.exe").to_path_buf()
+        } else {
+            Path::new("/bin/sh").to_path_buf()
+        }
+    }
+
+    // The "run this command string" flag: `cmd /C ...` vs `sh -c ...`.
+    fn shell_flag() -> String {
+        if cfg!(windows) { "/C" } else { "-c" }.to_string()
+    }
+
+    // A stdin-independent way to keep a child process busy for ~`secs`
+    // seconds, for the timeout/cancel tests. `ping` is used on Windows
+    // because `timeout.exe` refuses to run with redirected stdin.
+    fn sleep_cmd(secs: u32) -> String {
+        if cfg!(windows) {
+            format!("ping -n {} 127.0.0.1 >NUL", secs + 1)
+        } else {
+            format!("sleep {secs}")
+        }
+    }
+
+    // A path that is guaranteed not to exist, for the missing-binary test.
+    fn missing_binary() -> std::path::PathBuf {
+        if cfg!(windows) {
+            Path::new(r"C:\nonexistent\brute-test-binary.exe").to_path_buf()
+        } else {
+            Path::new("/nonexistent/brute-test-binary").to_path_buf()
+        }
     }
 
     // `std::process::Command` has no getter for its Windows creation
@@ -319,8 +351,9 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn configure_no_window_does_not_break_spawning_or_captured_output() {
-        let mut cmd = Command::new(cmd_exe());
-        cmd.args(["/C", "echo still-works"]).stdout(Stdio::piped());
+        let mut cmd = Command::new(shell());
+        cmd.args([shell_flag(), "echo still-works".to_string()])
+            .stdout(Stdio::piped());
         configure_no_window(&mut cmd);
         let output = cmd
             .output()
@@ -332,12 +365,12 @@ mod tests {
     #[test]
     fn runs_a_real_process_and_captures_stdout() {
         let result = run(
-            &cmd_exe(),
-            &["/C".to_string(), "echo hello-from-brute".to_string()],
+            &shell(),
+            &[shell_flag(), "echo hello-from-brute".to_string()],
             Duration::from_secs(10),
             |_| TickAction::Continue,
         )
-        .expect("cmd.exe should run");
+        .expect("shell should run");
 
         assert!(result.stdout.contains("hello-from-brute"));
         assert_eq!(result.exit_code, Some(0));
@@ -347,27 +380,27 @@ mod tests {
     #[test]
     fn reports_nonzero_exit_code() {
         let result = run(
-            &cmd_exe(),
-            &["/C".to_string(), "exit 7".to_string()],
+            &shell(),
+            &[shell_flag(), "exit 7".to_string()],
             Duration::from_secs(10),
             |_| TickAction::Continue,
         )
-        .expect("cmd.exe should run");
+        .expect("shell should run");
 
         assert_eq!(result.exit_code, Some(7));
     }
 
     #[test]
     fn kills_process_on_timeout() {
-        // `timeout.exe` refuses to run with redirected stdin, so use `ping`
-        // as a stdin-independent way to occupy the process for ~29s.
+        // Occupy the process for ~29s in a stdin-independent way (see
+        // `sleep_cmd`), then prove we kill it well before that elapses.
         let result = run(
-            &cmd_exe(),
-            &["/C".to_string(), "ping -n 30 127.0.0.1 >NUL".to_string()],
+            &shell(),
+            &[shell_flag(), sleep_cmd(29)],
             Duration::from_millis(500),
             |_| TickAction::Continue,
         )
-        .expect("cmd.exe should run");
+        .expect("shell should run");
 
         assert!(result.timed_out);
         assert!(result.wall_time < Duration::from_secs(5));
@@ -376,12 +409,12 @@ mod tests {
     #[test]
     fn cancel_action_kills_the_process_and_marks_cancelled_not_timed_out() {
         let result = run(
-            &cmd_exe(),
-            &["/C".to_string(), "ping -n 30 127.0.0.1 >NUL".to_string()],
+            &shell(),
+            &[shell_flag(), sleep_cmd(29)],
             Duration::from_secs(30),
             |_| TickAction::Cancel,
         )
-        .expect("cmd.exe should run");
+        .expect("shell should run");
 
         assert!(result.cancelled);
         assert!(!result.timed_out);
@@ -397,13 +430,13 @@ mod tests {
         let received_clone = received.clone();
 
         let result = run_streaming(
-            &cmd_exe(),
-            &["/C".to_string(), "echo streamed-hello".to_string()],
+            &shell(),
+            &[shell_flag(), "echo streamed-hello".to_string()],
             Duration::from_secs(10),
             |_| TickAction::Continue,
             move |chunk| received_clone.lock().unwrap().extend_from_slice(chunk),
         )
-        .expect("cmd.exe should run");
+        .expect("shell should run");
 
         assert_eq!(result.exit_code, Some(0));
         let streamed = String::from_utf8_lossy(&received.lock().unwrap()).into_owned();
@@ -417,13 +450,13 @@ mod tests {
     #[test]
     fn run_streaming_cancel_action_still_kills_the_process() {
         let result = run_streaming(
-            &cmd_exe(),
-            &["/C".to_string(), "ping -n 30 127.0.0.1 >NUL".to_string()],
+            &shell(),
+            &[shell_flag(), sleep_cmd(29)],
             Duration::from_secs(30),
             |_| TickAction::Cancel,
             |_| {},
         )
-        .expect("cmd.exe should run");
+        .expect("shell should run");
 
         assert!(result.cancelled);
         assert!(!result.timed_out);
@@ -432,12 +465,9 @@ mod tests {
 
     #[test]
     fn missing_binary_is_a_clear_error() {
-        let result = run(
-            Path::new(r"C:\nonexistent\brute-test-binary.exe"),
-            &[],
-            Duration::from_secs(1),
-            |_| TickAction::Continue,
-        );
+        let result = run(&missing_binary(), &[], Duration::from_secs(1), |_| {
+            TickAction::Continue
+        });
         assert!(matches!(result, Err(ProcessError::BinaryNotFound(_))));
     }
 
@@ -450,8 +480,8 @@ mod tests {
         let ticks_clone = ticks.clone();
 
         let _ = run(
-            &cmd_exe(),
-            &["/C".to_string(), "ping -n 3 127.0.0.1 >NUL".to_string()],
+            &shell(),
+            &[shell_flag(), sleep_cmd(2)],
             Duration::from_secs(5),
             move |_| {
                 ticks_clone.fetch_add(1, Ordering::SeqCst);

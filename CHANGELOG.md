@@ -12,6 +12,20 @@ linked below for each stage's full detail.
 
 ### Added
 
+- **macOS (Apple Silicon) desktop build.** The Tauri app now builds an
+  `.app` + `.dmg` on arm64 macOS: `bundle.targets` is `"all"` (native
+  targets per host OS — `.app`/`.dmg` on macOS, MSI/NSIS on Windows), a
+  new `scripts/fetch-llama-cpp.sh` fetches and pin-verifies the bundled
+  macOS llama.cpp runtime (the counterpart of the existing `.ps1`), and
+  the manifest gained `macos-arm64`/`macos-x64` entries anchored to
+  upstream release digests. The full engine + desktop test suites pass on
+  real Apple Silicon hardware, and the bundled runtime is pin-verified
+  and launchable (`brute doctor`). The macOS build is unsigned/not
+  notarized (Gatekeeper will warn on first launch, the parallel of the
+  Windows SmartScreen notice) and has not had full manual GUI end-to-end
+  sign-off, so it is not held to the Windows "release-ready" bar yet.
+  See [`BUILDING.md`](BUILDING.md) and
+  [`docs/cross-platform.md`](docs/cross-platform.md).
 - A local, offline-only user preference profile (language, task,
   speed/quality priority, plus ~13 advanced constraints like max
   RAM/VRAM/download size, preferred/excluded families, permitted

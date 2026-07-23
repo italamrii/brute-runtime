@@ -51,11 +51,12 @@ fn dev_repo_data_dir() -> PathBuf {
 }
 
 /// The bundled CPU-only llama.cpp runtime directory, if this build
-/// actually has one - Windows only for now (see `tauri.conf.json`'s
-/// `bundle.resources`, which maps the pinned, hash-verified
-/// `.tools/llama.cpp/b10064/cpu` directory into the packaged app). In a
-/// dev build this falls back to the same real repo-relative path a
-/// developer would have populated via `scripts/fetch-llama-cpp.ps1`.
+/// actually has one (see `tauri.conf.json`'s `bundle.resources`, which
+/// maps the pinned, hash-verified `.tools/llama.cpp/b10064/cpu` directory
+/// into the packaged app). Populated per-platform from the same manifest:
+/// `scripts/fetch-llama-cpp.ps1` on Windows, `scripts/fetch-llama-cpp.sh`
+/// on macOS. In a dev build this falls back to the same real repo-relative
+/// path those scripts write to.
 /// Returns `None` (never a guessed/fabricated path) when neither
 /// location actually exists - `commands::runtime::resolve_runtime`
 /// treats that as "no bundled runtime available on this build/platform"

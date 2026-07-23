@@ -6,14 +6,18 @@
 //! implements and how honestly it degrades when the expected OS API or
 //! system tool isn't present.
 //!
-//! **Verification status**: only `windows` has been built, run, and
-//! tested on real hardware (see `docs/stage-4-verification.md` and the
-//! Stage 0-4 verification documents). `macos` and `linux` compile
-//! (verified via `cargo check --target ...` cross-compilation checks
-//! from this Windows development machine) but have not been run on real
-//! macOS or Linux hardware - see `docs/cross-platform.md` for exactly
-//! what that does and does not mean. Never state or imply otherwise in
-//! release notes or UI copy.
+//! **Verification status**: `windows` has been built, run, and tested
+//! end-to-end on real hardware, including full manual GUI verification
+//! (see `docs/stage-4-verification.md` and the Stage 0-4 verification
+//! documents). `macos` has been built and run on real Apple Silicon
+//! hardware: the full engine and desktop test suites pass there and the
+//! bundled llama.cpp runtime is pin-verified and launches (`brute doctor`).
+//! Full manual GUI end-to-end sign-off (installing the `.dmg` and running
+//! a real model generation) has not been completed, so it is not yet
+//! held to the same "release-ready" bar as Windows. `linux` still only
+//! compiles and has not been run on real hardware. See
+//! `docs/cross-platform.md` for exactly what each level does and does not
+//! mean. Never state or imply more than the level a platform has reached.
 
 #[cfg(windows)]
 pub mod windows;
