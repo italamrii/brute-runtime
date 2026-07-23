@@ -118,7 +118,8 @@ Get the latest installer from the
 | Platform | Status |
 |---|---|
 | Windows 10/11 x64 | **Packaged and manually verified** — installer built, installed, and exercised end-to-end on real hardware. |
-| macOS | **Compile-verified only.** The core engine builds cleanly for `x86_64-apple-darwin`/`aarch64-apple-darwin`, but no macOS machine has run it. Not release-ready. |
+| macOS (Apple Silicon, arm64) | **Built and automatically verified on real hardware** — the `.app`/`.dmg` bundle builds on an Apple Silicon Mac, the full engine + desktop test suites pass there, and the bundled llama.cpp runtime is pin-verified and launches. Full manual GUI end-to-end (installing the `.dmg` and running a real model generation) has **not** been signed off yet, so it is not stamped "release-ready" to the Windows bar. |
+| macOS (Intel, x64) | **Compile/runtime pinned but unbuilt here** — the manifest and fetch script cover `macos-x64`, but the bundle has only been built and run on Apple Silicon. |
 | Linux | **Compile-verified only.** The core engine builds cleanly for `x86_64-unknown-linux-gnu`, but no Linux machine has run it. Not release-ready. |
 
 See [`docs/cross-platform.md`](docs/cross-platform.md) for exactly what
@@ -180,6 +181,16 @@ npm run tauri build    # production installer
 # Core engine / CLI only
 cargo build --release
 cargo test
+```
+
+```bash
+# Desktop app (macOS — Apple Silicon)
+./scripts/fetch-llama-cpp.sh          # fetch + pin-verify the bundled runtime
+cd desktop
+npm install
+npm run tauri dev      # development
+npm run tauri build    # produces .app + .dmg under
+                       # desktop/src-tauri/target/release/bundle/
 ```
 
 Full instructions, prerequisites, and verification checklists:

@@ -17,6 +17,26 @@
       "download_url": "https://github.com/ggml-org/llama.cpp/releases/download/b10064/llama-b10064-bin-win-vulkan-x64.zip",
       "sha256_zip": "319d4fba60188e3f3d9793ce875cf7fe2371992ca958390fc2050c63257e531a",
       "entry_points": ["llama-cli.exe", "llama-bench.exe"]
+    },
+    {
+      "tag": "b10064",
+      "backend": "cpu",
+      "os": "macos",
+      "arch": "arm64",
+      "asset": "llama-b10064-bin-macos-arm64.tar.gz",
+      "download_url": "https://github.com/ggml-org/llama.cpp/releases/download/b10064/llama-b10064-bin-macos-arm64.tar.gz",
+      "sha256_zip": "2b221cbfcfcea8953b4c6672a1176687529a506ddb30fc37b9427bf3ab2455e6",
+      "entry_points": ["llama-cli", "llama-bench"]
+    },
+    {
+      "tag": "b10064",
+      "backend": "cpu",
+      "os": "macos",
+      "arch": "x64",
+      "asset": "llama-b10064-bin-macos-x64.tar.gz",
+      "download_url": "https://github.com/ggml-org/llama.cpp/releases/download/b10064/llama-b10064-bin-macos-x64.tar.gz",
+      "sha256_zip": "5cd211b18b53aae7f02d94869a05db7887f501286de628e126cfa21bed551b1a",
+      "entry_points": ["llama-cli", "llama-bench"]
     }
   ]
 }
