@@ -390,7 +390,7 @@ version = "0.1.0"
 dependencies = [
  "brute",
  "chrono",
- "dirs 5.0.1",
+ "dirs 6.0.0",
  "serde",
  "serde_json",
  "tauri",
